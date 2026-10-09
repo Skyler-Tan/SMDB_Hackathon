@@ -1,0 +1,63 @@
+<section class="impact">
+  <p class="eyebrow">Rewards</p>
+  <h1>Your recycle impact</h1>
+
+  @if (error()) {
+    <p class="err">{{ error() }}</p>
+  }
+
+  @if (last(); as done) {
+    <article class="card highlight">
+      <h2>Last recycle</h2>
+      <p>
+        {{ done.quantity }} × {{ done.itemName }} saved about
+        {{ done.waterLitersThisTurn }} L water,
+        {{ done.co2KgThisTurn }} kg greenhouse gas, and
+        {{ done.materialGramsThisTurn }} g {{ done.materialLabel }}.
+      </p>
+      <p>+{{ done.pointsThisTurn }} pts</p>
+    </article>
+  }
+
+  @if (stats(); as s) {
+    <div class="grid">
+      <article class="card">
+        <p>Points</p>
+        <strong>{{ s.points }}</strong>
+      </article>
+      <article class="card">
+        <p>Items</p>
+        <strong>{{ s.itemsRecycled }}</strong>
+      </article>
+      <article class="card">
+        <p>Water</p>
+        <strong>{{ s.waterLiters }} L</strong>
+      </article>
+      <article class="card">
+        <p>Greenhouse gas</p>
+        <strong>{{ s.co2Kg }} kg</strong>
+      </article>
+    </div>
+
+    <h2>Badges</h2>
+    @if (s.badges.length === 0) {
+      <p class="muted">Recycle your first item to earn a badge.</p>
+    }
+    <div class="badges">
+      @for (badge of s.badges; track badge) {
+        <span>{{ badge }}</span>
+      }
+    </div>
+
+    @if (s.byMaterial.length) {
+      <h2>By material</h2>
+      <ul>
+        @for (row of s.byMaterial; track row.material) {
+          <li>{{ row.material }}: {{ row.count }}</li>
+        }
+      </ul>
+    }
+  }
+
+  <p class="fine">Impact numbers are educational estimates of what it takes to make those items, not lab measurements.</p>
+</section>

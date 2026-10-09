@@ -1,0 +1,33 @@
+<section class="reuse">
+  <header>
+    <label class="diff">
+      Difficulty
+      <select [ngModel]="difficulty()" (ngModelChange)="onDifficulty($event)">
+        @for (level of difficulties; track level) {
+          <option [value]="level">{{ level }}</option>
+        }
+      </select>
+    </label>
+    <div>
+      <p class="eyebrow">Reuse</p>
+      <h1>{{ material() }} DIY ideas</h1>
+    </div>
+  </header>
+
+  @if (loading()) {
+    <p class="muted">Finding ideas...</p>
+  }
+  @if (error()) {
+    <p class="err">{{ error() }}</p>
+  }
+
+  <div class="scroller">
+    @for (guide of guides(); track guide.id) {
+      <a class="card" [routerLink]="['/reuse', guide.id]">
+        <p class="level">{{ guide.difficulty }}</p>
+        <h2>{{ guide.title }}</h2>
+        <p>{{ guide.summary }}</p>
+      </a>
+    }
+  </div>
+</section>

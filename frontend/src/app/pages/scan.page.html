@@ -1,0 +1,687 @@
+<section class="scan">
+
+  <header>
+    <p class="eyebrow">3R</p>
+
+    <h1>Scan an item</h1>
+
+    <p>{{ status() }}</p>
+  </header>
+
+
+  <div class="viewport">
+
+    <video
+      #video
+      playsinline
+      autoplay
+      muted>
+    </video>
+
+    <canvas
+      #frame
+      hidden>
+    </canvas>
+
+  </div>
+
+
+  <div class="actions">
+
+    <button
+      class="shutter"
+      (click)="capture()"
+      [disabled]="busy()">
+
+      {{ busy() ? 'Scanning...' : 'Scan' }}
+
+    </button>
+
+
+    <label class="upload">
+
+      Upload photo
+
+      <input
+        type="file"
+        accept="image/*"
+        (change)="onUpload($event)"
+        [disabled]="busy()" />
+
+    </label>
+
+  </div>
+
+
+  @if (error()) {
+
+    <p class="err">
+      {{ error() }}
+    </p>
+
+  }
+
+</section>
+
+
+
+@if (result(); as scan) {
+
+  <div class="sheet">
+
+    <div class="sheet-card">
+
+
+      @if (!reuseResult()) {
+
+        <p class="eyebrow">
+          AI scan result
+        </p>
+
+
+        <h2>
+          {{ scan.name }}
+        </h2>
+
+
+        <div class="details">
+
+
+          @if (
+            scan.brand &&
+            scan.brand !== 'unknown'
+          ) {
+
+            <div class="detail">
+
+              <span>
+                Brand
+              </span>
+
+              <strong>
+                {{ scan.brand }}
+              </strong>
+
+            </div>
+
+          }
+
+
+          @if (
+            scan.size &&
+            scan.size !== 'unknown'
+          ) {
+
+            <div class="detail">
+
+              <span>
+                Size
+              </span>
+
+              <strong>
+                {{ scan.size }}
+              </strong>
+
+            </div>
+
+          }
+
+
+          @if (
+            scan.container &&
+            scan.container !== 'unknown'
+          ) {
+
+            <div class="detail">
+
+              <span>
+                Container
+              </span>
+
+              <strong>
+                {{ scan.container }}
+              </strong>
+
+            </div>
+
+          }
+
+
+          <div class="detail">
+
+            <span>
+              Material
+            </span>
+
+            <strong>
+              {{ scan.material }}
+            </strong>
+
+          </div>
+
+
+          <div class="detail">
+
+            <span>
+              AI confidence
+            </span>
+
+            <strong>
+              {{ (scan.confidence * 100).toFixed(0) }}%
+            </strong>
+
+          </div>
+
+        </div>
+
+
+
+        <!-- RECYCLING STATUS -->
+
+        <div class="pills">
+
+          @if (recyclingLoading()) {
+
+            <span class="bin">
+              Recyclable: checking...
+            </span>
+
+            <span class="bin">
+              Bin: checking...
+            </span>
+
+          } @else {
+
+            <span
+              [class.yes]="scan.recyclable"
+              [class.no]="!scan.recyclable">
+
+              Recyclable:
+              {{ scan.recyclable ? 'yes' : 'no' }}
+
+            </span>
+
+
+            <span class="bin">
+
+              Bin:
+              {{ scan.bin }}
+
+            </span>
+
+          }
+
+        </div>
+
+
+
+        @if (scan.notes) {
+
+          <p class="notes">
+            {{ scan.notes }}
+          </p>
+
+        }
+
+
+
+        <!-- ENVIRONMENTAL IMPACT -->
+
+        @if (
+          scan.recyclable &&
+          !recyclingLoading()
+        ) {
+
+          <div class="impact-preview">
+
+            <p>
+
+              Each one ≈
+              {{ scan.waterLiters }} L water,
+              {{ scan.co2Kg }} kg CO₂,
+              {{ scan.materialGrams }} g
+              {{ scan.materialLabel }}
+              · +{{ scan.rewardPoints }} pts
+
+            </p>
+
+          </div>
+
+
+          <div class="qty">
+
+            <button
+              (click)="changeQty(-1)">
+
+              −
+
+            </button>
+
+
+            <strong>
+              {{ quantity() }}
+            </strong>
+
+
+            <button
+              (click)="changeQty(1)">
+
+              +
+
+            </button>
+
+          </div>
+
+        }
+
+
+
+        <!-- RECYCLING SUCCESS -->
+
+        @if (recycleResult(); as done) {
+
+          <div class="saved">
+
+            <h3>
+              Nice work
+            </h3>
+
+
+            <p>
+
+              Recycling
+              {{ done.quantity }}
+              {{ done.itemName }}
+              {{ done.quantity > 1 ? 's' : '' }}
+              avoided about
+
+              <strong>
+                {{ done.waterLitersThisTurn }} L water
+              </strong>,
+
+              <strong>
+                {{ done.co2KgThisTurn }} kg greenhouse gas
+              </strong>,
+
+              and
+
+              <strong>
+                {{ done.materialGramsThisTurn }} g
+                {{ done.materialLabel }}
+              </strong>.
+
+            </p>
+
+
+            <p>
+              +{{ done.pointsThisTurn }} points
+            </p>
+
+
+            @if (done.newBadges.length) {
+
+              <p>
+
+                New rewards:
+                {{ done.newBadges.join(', ') }}
+
+              </p>
+
+            }
+
+          </div>
+
+        }
+
+
+
+        <!-- ACTION BUTTONS -->
+
+        <div class="row">
+
+          <button
+            class="primary"
+            (click)="recycle()"
+            [disabled]="
+              !scan.recyclable ||
+              recyclingLoading() ||
+              busy()
+            ">
+
+            Recycle
+
+          </button>
+
+
+          <button
+            class="secondary"
+            (click)="reuse()"
+            [disabled]="busy()">
+
+            Reuse
+
+          </button>
+
+        </div>
+
+      }
+
+
+
+      <!-- REUSE -->
+
+      @if (reuseResult(); as reuse) {
+
+
+        @if (!selectedReuse()) {
+
+          <div class="reuse-section">
+
+
+            <div class="reuse-header">
+
+              <div>
+
+                <p class="eyebrow">
+                  AI REUSE
+                </p>
+
+                <h3>
+                  Give it another life
+                </h3>
+
+              </div>
+
+
+              <select
+                [value]="reuseDifficulty()"
+                (change)="
+                  changeReuseDifficulty(
+                    $any($event.target).value
+                  )
+                "
+                [disabled]="busy()">
+
+                <option value="Easy">
+                  Easy
+                </option>
+
+                <option value="Medium">
+                  Medium
+                </option>
+
+                <option value="Hard">
+                  Hard
+                </option>
+
+              </select>
+
+            </div>
+
+
+            <p class="reuse-help">
+              Choose an idea to see the full tutorial.
+            </p>
+
+
+            <div class="reuse-ideas">
+
+              @for (
+                idea of reuse.ideas;
+                track idea.title
+              ) {
+
+                <button
+                  type="button"
+                  class="reuse-idea"
+                  (click)="openReuseIdea(idea)">
+
+
+                  <div>
+
+                    <h4>
+                      {{ idea.title }}
+                    </h4>
+
+
+                    <span>
+                      {{ idea.difficulty }}
+                    </span>
+
+                  </div>
+
+
+                  <strong>
+                    →
+                  </strong>
+
+                </button>
+
+              }
+
+            </div>
+
+
+            <button
+              class="ghost"
+              (click)="closeReuse()">
+
+              Back to item
+
+            </button>
+
+          </div>
+
+        }
+
+
+
+        <!-- REUSE DETAILS -->
+
+        @if (selectedReuse(); as idea) {
+
+          <div class="reuse-detail">
+
+
+            <button
+              type="button"
+              class="back-button"
+              (click)="closeReuseIdea()">
+
+              ← Back to ideas
+
+            </button>
+
+
+
+            <div class="reuse-detail-header">
+
+              <p class="eyebrow">
+                {{ idea.difficulty }}
+              </p>
+
+
+              <h2>
+                {{ idea.title }}
+              </h2>
+
+
+              <p>
+                {{ idea.summary }}
+              </p>
+
+            </div>
+
+
+
+            <!-- MATERIALS -->
+
+            @if (idea.materials.length) {
+
+              <div class="reuse-list">
+
+                <h3>
+                  Materials
+                </h3>
+
+
+                <ul>
+
+                  @for (
+                    material of idea.materials;
+                    track material
+                  ) {
+
+                    <li>
+                      {{ material }}
+                    </li>
+
+                  }
+
+                </ul>
+
+              </div>
+
+            }
+
+
+
+            <!-- TOOLS -->
+
+            @if (idea.tools.length) {
+
+              <div class="reuse-list">
+
+                <h3>
+                  Tools
+                </h3>
+
+
+                <ul>
+
+                  @for (
+                    tool of idea.tools;
+                    track tool
+                  ) {
+
+                    <li>
+                      {{ tool }}
+                    </li>
+
+                  }
+
+                </ul>
+
+              </div>
+
+            }
+
+
+
+            <!-- STEPS -->
+
+            @if (idea.steps.length) {
+
+              <div class="reuse-list">
+
+                <h3>
+                  Steps
+                </h3>
+
+
+                <ol>
+
+                  @for (
+                    step of idea.steps;
+                    track step
+                  ) {
+
+                    <li>
+                      {{ step }}
+                    </li>
+
+                  }
+
+                </ol>
+
+              </div>
+
+            }
+
+
+
+            <!-- TUTORIAL -->
+
+            @if (idea.tutorialUrl) {
+
+              <a
+                class="tutorial-button"
+                [href]="idea.tutorialUrl"
+                target="_blank"
+                rel="noopener noreferrer">
+
+                ▶ Watch tutorial
+
+              </a>
+
+            }
+
+
+
+            <!-- SOURCE -->
+
+            @if (
+              idea.sourceUrl &&
+              idea.sourceUrl !== idea.tutorialUrl
+            ) {
+
+              <a
+                class="source-link"
+                [href]="idea.sourceUrl"
+                target="_blank"
+                rel="noopener noreferrer">
+
+                🔗
+                {{ idea.sourceTitle || 'View source' }}
+
+              </a>
+
+            }
+
+
+
+            <button
+              class="ghost"
+              (click)="closeReuseIdea()">
+
+              Back to ideas
+
+            </button>
+
+          </div>
+
+        }
+
+      }
+
+
+
+      <!-- SCAN ANOTHER -->
+
+      @if (!reuseResult()) {
+
+        <button
+          class="ghost"
+          (click)="closeResult()">
+
+          Scan another
+
+        </button>
+
+      }
+
+    </div>
+
+  </div>
+
+}

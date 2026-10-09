@@ -1,0 +1,50 @@
+.detail {
+  padding: 16px 16px 28px;
+}
+
+.back {
+  text-decoration: none;
+  color: var(--accent);
+}
+
+h1 {
+  margin: 8px 0;
+}
+
+.eyebrow {
+  margin: 16px 0 0;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  color: var(--accent);
+}
+
+.summary,
+.muted {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.video {
+  aspect-ratio: 16 / 9;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid var(--line);
+}
+
+iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+ul,
+ol {
+  padding-left: 1.1rem;
+  line-height: 1.5;
+}
+
+.err {
+  color: var(--no);
+}
