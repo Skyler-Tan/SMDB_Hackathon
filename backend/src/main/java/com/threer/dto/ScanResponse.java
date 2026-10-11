@@ -1,25 +1,35 @@
+
 package com.threer.dto;
 
 public class ScanResponse {
 
     private String itemId;
+
+    // AI identification
     private String name;
     private String brand;
     private String size;
     private String container;
 
+    // Identification confirmation
+    private boolean identificationConfirmed;
+    private String identificationMessage;
+
+    // Recycling information
     private boolean recyclable;
-    private String bin;
+    private String recyclingStatus = "UNVERIFIED";
+    private String bin = "unknown";
     private String material;
     private String notes;
 
+    // Environmental impact
     private double waterLiters;
     private double co2Kg;
     private double materialGrams;
-
     private String materialLabel;
     private int rewardPoints;
 
+    // AI confidence
     private String matchedLabel;
     private double confidence;
 
@@ -63,12 +73,40 @@ public class ScanResponse {
         this.container = container;
     }
 
+    public boolean isIdentificationConfirmed() {
+        return identificationConfirmed;
+    }
+
+    public void setIdentificationConfirmed(
+            boolean identificationConfirmed) {
+        this.identificationConfirmed = identificationConfirmed;
+    }
+
+    public String getIdentificationMessage() {
+        return identificationMessage;
+    }
+
+    public void setIdentificationMessage(String identificationMessage) {
+        this.identificationMessage = identificationMessage;
+    }
+
     public boolean isRecyclable() {
         return recyclable;
     }
 
     public void setRecyclable(boolean recyclable) {
         this.recyclable = recyclable;
+    }
+
+    public String getRecyclingStatus() {
+        return recyclingStatus;
+    }
+
+    public void setRecyclingStatus(String recyclingStatus) {
+        this.recyclingStatus = recyclingStatus == null
+                || recyclingStatus.isBlank()
+                ? "UNVERIFIED"
+                : recyclingStatus.toUpperCase();
     }
 
     public String getBin() {

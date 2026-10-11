@@ -18,6 +18,7 @@ import {
 } from '../models';
 
 type Difficulty = 'Easy' | 'Medium' | 'Hard';
+type ConfidenceLevel = 'high' | 'medium' | 'low';
 
 @Component({
   selector: 'app-scan',
@@ -44,6 +45,14 @@ export class ScanPage implements AfterViewInit, OnDestroy {
 
   readonly result = signal<ScanResult | null>(null);
   readonly quantity = signal(1);
+
+  readonly identificationLevel =
+    signal<ConfidenceLevel | null>(null);
+
+  readonly identificationConfirmed = signal(false);
+  readonly correctionMode = signal(false);
+  readonly correctedName = signal('');
+  readonly correctionLoading = signal(false);
 
   readonly recycleResult = signal<any | null>(null);
   readonly recyclingLoading = signal(false);
@@ -129,8 +138,7 @@ export class ScanPage implements AfterViewInit, OnDestroy {
 
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const image = canvas.toDataURL('image/jpeg', 0.85);
-    this.sendImage(image);
+    this.sendImage(canvas.toDataURL('image/jpeg', 0.85));
   }
 
   onUpload(event: Event) {
@@ -150,6 +158,7 @@ export class ScanPage implements AfterViewInit, OnDestroy {
     reader.onload = () => {
       if (typeof reader.result !== 'string') {
         this.error.set('Could not read the image.');
+        input.value = '';
         return;
       }
 
@@ -165,6 +174,39 @@ export class ScanPage implements AfterViewInit, OnDestroy {
     reader.readAsDataURL(file);
   }
 
+  /**
+   * Supports confidence values expressed either as 0–1
+   * or as percentages from 0–100.
+   */
+  confidencePercent(confidence: number): number {
+    const value = Number(confidence);
+
+    if (!Number.isFinite(value)) return 0;
+
+    const normalized = value > 1 ? value : value * 100;
+
+    return Math.max(0, Math.min(100, normalized));
+  }
+
+  private getConfidenceLevel(
+    confidence: number
+  ): ConfidenceLevel {
+    const percentage = this.confidencePercent(confidence);
+
+    if (percentage >= 80) return 'high';
+    if (percentage >= 60) return 'medium';
+
+    return 'low';
+  }
+
+  private resetIdentification() {
+    this.identificationLevel.set(null);
+    this.identificationConfirmed.set(false);
+    this.correctionMode.set(false);
+    this.correctedName.set('');
+    this.correctionLoading.set(false);
+  }
+
   private sendImage(image: string) {
     this.busy.set(true);
     this.error.set('');
@@ -172,6 +214,8 @@ export class ScanPage implements AfterViewInit, OnDestroy {
     this.result.set(null);
     this.recycleResult.set(null);
     this.recyclingLoading.set(false);
+
+    this.resetIdentification();
 
     this.reuseMode.set(false);
     this.reuseResult.set(null);
@@ -190,20 +234,27 @@ export class ScanPage implements AfterViewInit, OnDestroy {
         this.result.set(response);
         this.busy.set(false);
 
-        // Start both background tasks after identification.
-        // The user does not need to open Reuse first.
-        this.status.set('Preparing your results...');
+        const level = this.getConfidenceLevel(
+          response.confidence
+        );
 
-        if (response.itemId) {
-          this.recyclingLoading.set(true);
-          this.startRecyclingCheck(response.itemId);
+        this.identificationLevel.set(level);
+
+        // The backend decides whether this item is already confirmed.
+        const confirmed = response.identificationConfirmed === true;
+
+        this.identificationConfirmed.set(confirmed);
+
+        if (confirmed) {
+          this.status.set('Item identified successfully.');
+          this.continueAfterIdentification(response);
         } else {
-          this.status.set('Scan complete');
+          this.status.set(
+            level === 'medium'
+              ? 'Please confirm the identified item.'
+              : 'Identification is uncertain. Please check the item.'
+          );
         }
-
-        // Preload Easy DIY ideas only.
-        // Medium and Hard are generated when selected.
-        this.preloadReuseIdeas(response);
       },
 
       error: (err: any) => {
@@ -219,6 +270,162 @@ export class ScanPage implements AfterViewInit, OnDestroy {
         this.recyclingLoading.set(false);
       }
     });
+  }
+
+  /**
+   * Called when the user presses Yes.
+   * Persist confirmation before starting recycling or DIY requests.
+   */
+  confirmIdentification() {
+    const scan = this.result();
+
+    if (!scan || this.busy()) return;
+
+    if (!scan.itemId) {
+      this.error.set(
+        'This scan has no saved item ID. Please scan the item again.'
+      );
+      return;
+    }
+
+    this.busy.set(true);
+    this.error.set('');
+    this.correctionMode.set(false);
+    this.status.set('Saving your confirmation...');
+
+    this.api.confirmIdentification(scan.itemId).subscribe({
+      next: (response: ScanResult) => {
+        if (this.result()?.itemId !== scan.itemId) return;
+
+        const confirmedScan: ScanResult = {
+          ...scan,
+          ...response,
+          identificationConfirmed: true
+        };
+
+        this.result.set(confirmedScan);
+        this.identificationConfirmed.set(true);
+        this.busy.set(false);
+
+        this.status.set('Confirmation saved. Preparing results...');
+        this.continueAfterIdentification(confirmedScan);
+      },
+
+      error: (err: any) => {
+        console.error('Confirmation error:', err);
+
+        this.busy.set(false);
+        this.identificationConfirmed.set(false);
+
+        this.error.set(
+          err?.error?.message ||
+          'Could not confirm the item. Please try again.'
+        );
+
+        this.status.set('Confirmation failed');
+      }
+    });
+  }
+
+  /**
+   * Called when the user presses No.
+   */
+  rejectIdentification() {
+    if (this.busy()) return;
+
+    this.error.set('');
+    this.correctedName.set('');
+    this.correctionMode.set(true);
+
+    this.status.set('Enter the correct item name.');
+  }
+
+  /**
+   * Save the corrected name and backend confirmation first.
+   */
+  submitCorrection() {
+    const scan = this.result();
+    const name = this.correctedName().trim();
+
+    if (!scan) return;
+
+    if (!name) {
+      this.error.set('Please enter the correct item name.');
+      return;
+    }
+
+    if (name.length > 150) {
+      this.error.set(
+        'The item name must be 150 characters or fewer.'
+      );
+      return;
+    }
+
+    if (!scan.itemId) {
+      this.error.set(
+        'This scan has no saved item ID. Please scan the item again.'
+      );
+      return;
+    }
+
+    this.correctionLoading.set(true);
+    this.error.set('');
+    this.status.set('Saving your correction...');
+
+    this.api.correctItemName(scan.itemId, name).subscribe({
+      next: response => {
+        const correctedScan: ScanResult = {
+          ...scan,
+          name: response.name,
+          identificationConfirmed:
+            response.identificationConfirmed ?? true,
+          recyclingStatus: 'UNVERIFIED',
+          recyclable: false,
+          bin: 'unknown'
+        };
+
+        this.result.set(correctedScan);
+        this.correctedName.set(response.name);
+        this.correctionMode.set(false);
+        this.correctionLoading.set(false);
+        this.identificationConfirmed.set(true);
+
+        // The backend has saved the correction and confirmed the item.
+        // Now perform a fresh recycling check and generate DIY ideas.
+        this.status.set('Correction saved. Preparing results...');
+        this.continueAfterIdentification(correctedScan);
+      },
+
+      error: err => {
+        console.error('Correction error:', err);
+
+        this.correctionLoading.set(false);
+        this.error.set(
+          err?.error?.message ||
+          'Could not save the corrected item name. Please try again.'
+        );
+
+        this.status.set('Correction failed');
+      }
+    });
+  }
+
+  /**
+   * Only start these tasks after confirmation is persisted.
+   */
+  private continueAfterIdentification(scan: ScanResult) {
+    if (!this.identificationConfirmed()) return;
+
+    this.status.set('Preparing your results...');
+
+    if (scan.itemId) {
+      this.recyclingLoading.set(true);
+      this.startRecyclingCheck(scan.itemId);
+    } else {
+      this.status.set('Identification complete');
+    }
+
+    this.preloadReuseIdeas(scan);
   }
 
   private startRecyclingCheck(itemId: string) {
@@ -240,17 +447,29 @@ export class ScanPage implements AfterViewInit, OnDestroy {
 
         this.recyclingLoading.set(false);
         this.status.set('Scan complete');
+
+        this.error.set(
+          err?.error?.message ||
+          'The item was identified, but recycling information could not be checked.'
+        );
       }
     });
   }
 
   private preloadReuseIdeas(scan: ScanResult) {
-    // Automatically generate Easy ideas in the background.
     this.generateReuse(scan, 'Easy');
   }
 
   private generateReuse(scan: ScanResult, difficulty: Difficulty) {
-    // Use cached ideas if this difficulty has already been generated.
+    if (!this.identificationConfirmed()) return;
+
+    if (!scan.itemId) {
+      this.error.set(
+        'This item has no saved ID. Please scan it again.'
+      );
+      return;
+    }
+
     const cached = this.reuseCache[difficulty];
 
     if (cached) {
@@ -266,7 +485,6 @@ export class ScanPage implements AfterViewInit, OnDestroy {
       return;
     }
 
-    // Do not send a duplicate request while generation is in progress.
     if (this.reuseLoading()[difficulty]) return;
 
     this.setReuseLoading(difficulty, true);
@@ -281,7 +499,10 @@ export class ScanPage implements AfterViewInit, OnDestroy {
       );
     }
 
+    // IMPORTANT: include itemId so the backend can load the saved,
+    // confirmed item rather than relying only on frontend data.
     this.api.reuse(
+      scan.itemId,
       scan.name,
       scan.brand,
       scan.size,
@@ -290,12 +511,9 @@ export class ScanPage implements AfterViewInit, OnDestroy {
       difficulty
     ).subscribe({
       next: (response: ReuseResult) => {
-        // Cache the result for quick access when Reuse is opened.
         this.reuseCache[difficulty] = response;
         this.setReuseLoading(difficulty, false);
 
-        // Update the visible screen only for the current item
-        // and currently selected difficulty.
         if (
           this.result()?.itemId === scan.itemId &&
           this.reuseMode() &&
@@ -363,8 +581,10 @@ export class ScanPage implements AfterViewInit, OnDestroy {
     const scan = this.result();
 
     if (
+      !this.identificationConfirmed() ||
       !scan ||
       !scan.recyclable ||
+      scan.recyclingStatus !== 'RECYCLABLE' ||
       !scan.itemId ||
       this.recyclingLoading() ||
       this.busy()
@@ -397,7 +617,7 @@ export class ScanPage implements AfterViewInit, OnDestroy {
   reuse() {
     const scan = this.result();
 
-    if (!scan) return;
+    if (!scan || !this.identificationConfirmed()) return;
 
     this.error.set('');
     this.reuseMode.set(true);
@@ -407,7 +627,6 @@ export class ScanPage implements AfterViewInit, OnDestroy {
     const cached = this.reuseCache.Easy;
 
     if (cached) {
-      // Open instantly if background generation has finished.
       this.reuseResult.set(cached);
       this.status.set('Easy reuse ideas ready');
     } else {
@@ -434,7 +653,7 @@ export class ScanPage implements AfterViewInit, OnDestroy {
     const difficulty = value as Difficulty;
     const scan = this.result();
 
-    if (!scan) return;
+    if (!scan || !this.identificationConfirmed()) return;
 
     this.error.set('');
     this.reuseDifficulty.set(difficulty);
@@ -483,6 +702,8 @@ export class ScanPage implements AfterViewInit, OnDestroy {
     this.result.set(null);
     this.recycleResult.set(null);
     this.recyclingLoading.set(false);
+
+    this.resetIdentification();
 
     this.reuseMode.set(false);
     this.reuseResult.set(null);

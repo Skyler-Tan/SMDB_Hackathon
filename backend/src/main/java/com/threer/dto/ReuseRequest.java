@@ -1,13 +1,23 @@
+
 package com.threer.dto;
 
 public class ReuseRequest {
 
+    private String itemId;
     private String name;
     private String brand;
     private String size;
     private String container;
     private String material;
     private String difficulty;
+
+    public String getItemId() {
+        return itemId;
+    }
+
+    public void setItemId(String itemId) {
+        this.itemId = itemId;
+    }
 
     public String getName() {
         return name;

@@ -15,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 @Service
-public class HuggingFaceVisionService {
+public class GroqVisionService {
 
     private static final String API_URL =
             "https://api.groq.com/openai/v1/chat/completions";
@@ -31,7 +31,7 @@ public class HuggingFaceVisionService {
     @Value("${groq.api-key}")
     private String apiKey;
 
-    public HuggingFaceVisionService(ObjectMapper objectMapper) {
+    public GroqVisionService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
 
         this.httpClient = HttpClient.newBuilder()

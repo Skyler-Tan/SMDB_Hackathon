@@ -1,12 +1,18 @@
 
 package com.threer.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.threer.dto.ReuseRequest;
 import com.threer.dto.ReuseResponse;
+import com.threer.model.ScannedItem;
+import com.threer.repository.ScannedItemRepository;
+
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -24,20 +30,24 @@ public class ReuseService {
             "https://api.groq.com/openai/v1/chat/completions";
 
     private static final String MODEL = "qwen/qwen3.8-27b";
+    private static final int MAX_GENERATION_ATTEMPTS = 2;
 
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final TavilySearchService tavilySearchService;
+    private final ScannedItemRepository scannedItemRepository;
 
     @Value("${groq.api-key}")
     private String apiKey;
 
     public ReuseService(
             ObjectMapper objectMapper,
-            TavilySearchService tavilySearchService) {
-
+            TavilySearchService tavilySearchService,
+            ScannedItemRepository scannedItemRepository
+    ) {
         this.objectMapper = objectMapper;
         this.tavilySearchService = tavilySearchService;
+        this.scannedItemRepository = scannedItemRepository;
 
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(20))
@@ -46,59 +56,125 @@ public class ReuseService {
 
     public ReuseResponse generateIdeas(ReuseRequest request) {
 
-        if (request == null || request.getName() == null
-                || request.getName().isBlank()) {
-            throw new IllegalArgumentException(
-                    "An identified item is required to generate reuse ideas."
+        if (request == null
+                || request.getItemId() == null
+                || request.getItemId().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "A scanned item ID is required. Please scan and confirm an item first."
             );
         }
 
+        ScannedItem item = scannedItemRepository
+                .findById(request.getItemId().trim())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Scanned item not found. Please scan the item again."
+                ));
+
+        if (!item.isIdentificationConfirmed()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Please confirm the item's identification before generating DIY ideas."
+            );
+        }
+
+        if (item.getName() == null || item.getName().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "The confirmed item has no name. Please correct its identification first."
+            );
+        }
+
+        // Always use the saved, confirmed item details.
+        // Do not trust the name/material supplied by the frontend.
         String difficulty = normalizeDifficulty(request.getDifficulty());
-        String prompt = buildPrompt(request, difficulty);
+        String prompt = buildPrompt(item, difficulty);
 
         try {
-            Map<String, Object> body = Map.of(
-                    "model", MODEL,
-                    "messages", List.of(
-                            Map.of("role", "user", "content", prompt)
-                    ),
-                    "temperature", 0.3,
-                    "max_tokens", 650
-            );
+            List<ReuseResponse.DiyIdea> ideas = new ArrayList<>();
 
-            String json = objectMapper.writeValueAsString(body);
+            for (int attempt = 1;
+                 attempt <= MAX_GENERATION_ATTEMPTS;
+                 attempt++) {
 
-            System.out.println("========== GROQ REUSE ==========");
-            System.out.println("Item: " + request.getName());
-            System.out.println("Difficulty: " + difficulty);
-
-            JsonNode root = sendGroqRequest(json);
-            String content = root.path("choices")
-                    .path(0)
-                    .path("message")
-                    .path("content")
-                    .asText("");
-
-            if (content.isBlank()) {
-                throw new IllegalStateException(
-                        "Groq returned an empty reuse response."
+                System.out.println("========== GROQ REUSE ==========");
+                System.out.println("Confirmed item: " + item.getName());
+                System.out.println("Item ID: " + item.getId());
+                System.out.println("Difficulty: " + difficulty);
+                System.out.println(
+                        "Generation attempt: " + attempt + "/"
+                                + MAX_GENERATION_ATTEMPTS
                 );
-            }
 
-            JsonNode result = objectMapper.readTree(cleanJson(content));
-            List<ReuseResponse.DiyIdea> ideas =
-                    parseIdeas(result, difficulty);
+                JsonNode root = sendGroqRequest(
+                        buildRequestBody(prompt, attempt)
+                );
+
+                String finishReason = root.path("choices")
+                        .path(0)
+                        .path("finish_reason")
+                        .asText("");
+
+                String content = root.path("choices")
+                        .path(0)
+                        .path("message")
+                        .path("content")
+                        .asText("");
+
+                if (content.isBlank()) {
+                    System.err.println("Groq returned empty content.");
+                    continue;
+                }
+
+                if ("length".equalsIgnoreCase(finishReason)) {
+                    System.err.println(
+                            "Groq reached its output token limit."
+                    );
+                    continue;
+                }
+
+                try {
+                    JsonNode result = objectMapper.readTree(
+                            cleanJson(content)
+                    );
+
+                    ideas = parseIdeas(result, difficulty);
+
+                    if (!ideas.isEmpty()) {
+                        break;
+                    }
+
+                    System.err.println(
+                            "Groq returned JSON without valid DIY ideas."
+                    );
+
+                } catch (JsonProcessingException e) {
+                    System.err.println(
+                            "Groq returned invalid or incomplete JSON: "
+                                    + e.getOriginalMessage()
+                    );
+                }
+
+                if (attempt < MAX_GENERATION_ATTEMPTS) {
+                    System.out.println(
+                            "Retrying DIY generation with a larger "
+                                    + "output allowance..."
+                    );
+                }
+            }
 
             if (ideas.isEmpty()) {
                 throw new IllegalStateException(
-                        "Groq did not return valid " + difficulty + " ideas."
+                        "Groq could not generate valid DIY ideas after "
+                                + MAX_GENERATION_ATTEMPTS
+                                + " attempts. Please try again."
                 );
             }
 
-            // One web search for all generated ideas instead of one
-            // Tavily request per idea.
+            // Tavily is optional here and searches for tutorials only.
             List<TavilySearchService.SearchResult> tutorialResults =
-                    findTutorials(request);
+                    findTutorials(item);
 
             List<ReuseResponse.DiyIdea> enrichedIdeas = new ArrayList<>();
 
@@ -146,6 +222,30 @@ public class ReuseService {
         }
     }
 
+    private String buildRequestBody(String prompt, int attempt)
+            throws JsonProcessingException {
+
+        int maxTokens = attempt == 1 ? 1200 : 1800;
+
+        Map<String, Object> body = Map.of(
+                "model", MODEL,
+                "messages", List.of(
+                        Map.of(
+                                "role", "system",
+                                "content", "You generate practical DIY reuse "
+                                        + "ideas. Follow the requested JSON "
+                                        + "structure exactly."
+                        ),
+                        Map.of("role", "user", "content", prompt)
+                ),
+                "temperature", 0.2,
+                "max_tokens", maxTokens,
+                "response_format", Map.of("type", "json_object")
+        );
+
+        return objectMapper.writeValueAsString(body);
+    }
+
     private JsonNode sendGroqRequest(String json) throws Exception {
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -156,10 +256,7 @@ public class ReuseService {
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .build();
 
-        // Share the lock with vision and recycling verification.
-        // This prevents these services from sending Groq requests
-        // simultaneously inside this application.
-        synchronized (HuggingFaceVisionService.GROQ_REQUEST_LOCK) {
+        synchronized (GroqVisionService.GROQ_REQUEST_LOCK) {
 
             for (int attempt = 1; attempt <= 3; attempt++) {
 
@@ -188,8 +285,8 @@ public class ReuseService {
                 long waitSeconds = retryDelaySeconds(response, attempt);
 
                 System.out.println(
-                        "Groq reuse request limited/temporarily failed. "
-                                + "Retrying in " + waitSeconds + " seconds."
+                        "Groq request temporarily failed. Retrying in "
+                                + waitSeconds + " seconds."
                 );
 
                 Thread.sleep(waitSeconds * 1000L);
@@ -201,8 +298,8 @@ public class ReuseService {
 
     private long retryDelaySeconds(
             HttpResponse<?> response,
-            int attempt) {
-
+            int attempt
+    ) {
         try {
             String retryAfter =
                     response.headers().firstValue("Retry-After").orElse("");
@@ -212,10 +309,9 @@ public class ReuseService {
                         (long) Math.ceil(Double.parseDouble(retryAfter))));
             }
 
-            String reset =
-                    response.headers()
-                            .firstValue("x-ratelimit-reset-tokens")
-                            .orElse("");
+            String reset = response.headers()
+                    .firstValue("x-ratelimit-reset-tokens")
+                    .orElse("");
 
             if (reset.endsWith("s")) {
                 double seconds = Double.parseDouble(
@@ -226,18 +322,16 @@ public class ReuseService {
                         (long) Math.ceil(seconds)));
             }
         } catch (Exception ignored) {
-            // Use the fallback delay below.
+            // Use the fallback delay.
         }
 
         return Math.min(15, attempt * 5L);
     }
 
-    private String buildPrompt(
-            ReuseRequest request,
-            String difficulty) {
+    private String buildPrompt(ScannedItem item, String difficulty) {
 
         return """
-                Create exactly 3 practical DIY REUSE ideas for this item.
+                Generate exactly 3 practical DIY REUSE ideas for this item.
                 Do not suggest recycling.
 
                 Item: %s
@@ -247,26 +341,31 @@ public class ReuseService {
                 Material: %s
                 Required difficulty: %s
 
-                Rules:
-                - All ideas must match the requested difficulty.
-                - Make ideas different, cheap and realistic.
-                - Reuse the actual item.
-                - Include clear, ordered steps.
+                Requirements:
+                - Every idea must match the requested difficulty.
+                - Reuse the actual item and make the ideas different.
+                - Keep projects cheap, practical and realistic.
+                - Easy uses simple tools; Medium uses basic tools;
+                  Hard involves more construction.
+                - Include 3 or 4 short, ordered steps per idea.
+                - Use no more than 4 materials and 3 tools per idea.
+                - Keep the summary and final product description to one
+                  short sentence each.
                 - Avoid burning, melting, dangerous chemicals and unsafe uses.
                 - Clean and dry packaging before reuse.
                 - Do not invent brand features.
-                - Easy: simple tools; Medium: basic tools; Hard: more construction.
-                - Keep each summary and step concise.
-                - Return valid JSON only, with no Markdown fences.
+                - Return a JSON object with an "ideas" array.
+                - Return JSON only, with no Markdown or extra commentary.
+                - Include all required fields for all 3 ideas.
 
-                JSON structure:
+                Required JSON structure:
                 {
                   "ideas": [
                     {
                       "title": "Short title",
                       "difficulty": "%s",
                       "summary": "Short explanation",
-                      "finalProduct": "Description of finished product",
+                      "finalProduct": "Finished product description",
                       "materials": ["material"],
                       "tools": ["tool"],
                       "steps": ["Step 1", "Step 2", "Step 3"]
@@ -274,11 +373,11 @@ public class ReuseService {
                   ]
                 }
                 """.formatted(
-                safe(request.getName()),
-                safe(request.getBrand()),
-                safe(request.getSize()),
-                safe(request.getContainer()),
-                safe(request.getMaterial()),
+                safe(item.getName()),
+                safe(item.getBrand()),
+                safe(item.getSize()),
+                safe(item.getContainer()),
+                safe(item.getMaterial()),
                 difficulty,
                 difficulty
         );
@@ -286,8 +385,8 @@ public class ReuseService {
 
     private List<ReuseResponse.DiyIdea> parseIdeas(
             JsonNode root,
-            String requestedDifficulty) {
-
+            String requestedDifficulty
+    ) {
         List<ReuseResponse.DiyIdea> ideas = new ArrayList<>();
         JsonNode array = root.path("ideas");
 
@@ -306,6 +405,12 @@ public class ReuseService {
                 continue;
             }
 
+            List<String> steps = readStringArray(idea.path("steps"));
+
+            if (steps.isEmpty()) {
+                continue;
+            }
+
             ideas.add(new ReuseResponse.DiyIdea(
                     title,
                     requestedDifficulty,
@@ -313,7 +418,7 @@ public class ReuseService {
                     idea.path("finalProduct").asText(""),
                     readStringArray(idea.path("materials")),
                     readStringArray(idea.path("tools")),
-                    readStringArray(idea.path("steps")),
+                    steps,
                     "",
                     "",
                     "",
@@ -325,11 +430,11 @@ public class ReuseService {
     }
 
     private List<TavilySearchService.SearchResult> findTutorials(
-            ReuseRequest request) {
-
+            ScannedItem item
+    ) {
         try {
-            String query = safe(request.getName()) + " "
-                    + safe(request.getMaterial())
+            String query = safe(item.getName()) + " "
+                    + safe(item.getMaterial())
                     + " DIY reuse project tutorial";
 
             System.out.println("Searching DIY tutorials: " + query);
@@ -350,16 +455,14 @@ public class ReuseService {
 
     private TutorialInfo chooseTutorial(
             List<TavilySearchService.SearchResult> results,
-            int ideaIndex) {
-
+            int ideaIndex
+    ) {
         if (results.isEmpty()) {
             return emptyTutorial();
         }
 
-        // Prefer a different result for each idea where possible.
         int index = Math.min(ideaIndex, results.size() - 1);
 
-        // Prefer YouTube when one is available.
         for (TavilySearchService.SearchResult result : results) {
             String url = result.url();
 
@@ -415,7 +518,9 @@ public class ReuseService {
     }
 
     private String safe(String value) {
-        return value == null || value.isBlank() ? "unknown" : value.trim();
+        return value == null || value.isBlank()
+                ? "unknown"
+                : value.trim();
     }
 
     private String cleanJson(String text) {
@@ -438,6 +543,7 @@ public class ReuseService {
             String tutorialTitle,
             String tutorialUrl,
             String sourceTitle,
-            String sourceUrl) {
+            String sourceUrl
+    ) {
     }
 }

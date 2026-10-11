@@ -1,4 +1,3 @@
-
 <section class="scan">
   <header>
     <p class="eyebrow">3R</p>
@@ -14,6 +13,7 @@
   <div class="actions">
     <button
       class="shutter"
+      type="button"
       (click)="capture()"
       [disabled]="busy()">
       {{ busy() ? 'Scanning...' : 'Scan' }}
@@ -38,7 +38,6 @@
   <div class="sheet">
     <div class="sheet-card">
 
-      <!-- SCAN RESULT -->
       @if (!reuseMode()) {
         <p class="eyebrow">AI scan result</p>
         <h2>{{ scan.name }}</h2>
@@ -72,123 +71,215 @@
 
           <div class="detail">
             <span>AI confidence</span>
-            <strong>{{ (scan.confidence * 100).toFixed(0) }}%</strong>
+            <strong>
+              {{ confidencePercent(scan.confidence).toFixed(0) }}%
+            </strong>
           </div>
         </div>
 
-        <!-- RECYCLING STATUS -->
-        <div class="pills">
-          @if (recyclingLoading()) {
-            <span class="bin">Recyclable: checking...</span>
-            <span class="bin">Bin: checking...</span>
-          } @else {
-            <span
-              [class.yes]="scan.recyclable"
-              [class.no]="!scan.recyclable">
-              Recyclable: {{ scan.recyclable ? 'yes' : 'no' }}
-            </span>
+        <!-- CONFIRMATION FOR MEDIUM / LOW CONFIDENCE -->
+        @if (
+          identificationLevel() !== 'high' &&
+          !identificationConfirmed()
+        ) {
+          <div class="confirmation-panel">
+            @if (identificationLevel() === 'low') {
+              <p class="eyebrow">Low confidence</p>
+              <h3>We're not sure about this item</h3>
+              <p>
+                The AI may have identified the item incorrectly.
+                Please check the result before continuing.
+              </p>
+            } @else {
+              <p class="eyebrow">Please confirm</p>
+              <h3>Is this the correct item?</h3>
+              <p>
+                The AI identified this as
+                <strong>{{ scan.name }}</strong>.
+                Is that correct?
+              </p>
+            }
 
-            <span class="bin">Bin: {{ scan.bin }}</span>
-          }
-        </div>
+            @if (!correctionMode()) {
+              <div class="row">
+                <button
+                  class="primary"
+                  type="button"
+                  (click)="confirmIdentification()"
+                  [disabled]="busy()">
+                  Yes, correct
+                </button>
 
-        @if (scan.notes) {
-          <p class="notes">{{ scan.notes }}</p>
-        }
+                <button
+                  class="secondary"
+                  type="button"
+                  (click)="rejectIdentification()"
+                  [disabled]="busy()">
+                  No, change it
+                </button>
+              </div>
+            } @else {
+              <form
+                class="correction-form"
+                (submit)="$event.preventDefault(); submitCorrection()">
 
-        <!-- ENVIRONMENTAL IMPACT -->
-        @if (scan.recyclable && !recyclingLoading()) {
-          <div class="impact-preview">
-            <p>
-              Each one ≈
-              {{ scan.waterLiters }} L water,
-              {{ scan.co2Kg }} kg CO₂,
-              {{ scan.materialGrams }} g
-              {{ scan.materialLabel }}
-              · +{{ scan.rewardPoints }} pts
-            </p>
-          </div>
+                <label for="correctedItemName">
+                  What is the correct item?
+                </label>
 
-          <div class="qty">
-            <button
-              type="button"
-              (click)="changeQty(-1)">
-              −
-            </button>
+                <input
+                  id="correctedItemName"
+                  type="text"
+                  maxlength="150"
+                  placeholder="e.g. paper receipt"
+                  [value]="correctedName()"
+                  (input)="correctedName.set($any($event.target).value)"
+                  [disabled]="correctionLoading()"
+                  required />
 
-            <strong>{{ quantity() }}</strong>
+                <p class="notes">
+                  Enter a clear item name. For example:
+                  plastic water bottle, aluminium can, or paper receipt.
+                </p>
 
-            <button
-              type="button"
-              (click)="changeQty(1)">
-              +
-            </button>
-          </div>
-        }
+                <button
+                  class="primary"
+                  type="submit"
+                  [disabled]="correctionLoading() || !correctedName().trim()">
+                  {{
+                    correctionLoading()
+                      ? 'Saving...'
+                      : 'Confirm corrected item'
+                  }}
+                </button>
 
-        <!-- RECYCLING SUCCESS -->
-        @if (recycleResult(); as done) {
-          <div class="saved">
-            <h3>Nice work</h3>
-
-            <p>
-              Recycling {{ done.quantity }}
-              {{ done.itemName }}
-              {{ done.quantity > 1 ? 's' : '' }}
-              avoided about
-              <strong>{{ done.waterLitersThisTurn }} L water</strong>,
-              <strong>{{ done.co2KgThisTurn }} kg greenhouse gas</strong>,
-              and
-              <strong>
-                {{ done.materialGramsThisTurn }} g
-                {{ done.materialLabel }}
-              </strong>.
-            </p>
-
-            <p>+{{ done.pointsThisTurn }} points</p>
-
-            @if (done.newBadges.length) {
-              <p>New rewards: {{ done.newBadges.join(', ') }}</p>
+                <button
+                  class="ghost"
+                  type="button"
+                  (click)="correctionMode.set(false); error.set('')"
+                  [disabled]="correctionLoading()">
+                  Back
+                </button>
+              </form>
             }
           </div>
         }
 
-        <!-- ACTION BUTTONS -->
-        <div class="row">
-          <button
-            class="primary"
-            type="button"
-            (click)="recycle()"
-            [disabled]="
-              !scan.recyclable ||
-              recyclingLoading() ||
-              busy()
-            ">
-            Recycle
-          </button>
+        <!-- SHOW THESE FEATURES ONLY AFTER CONFIRMATION -->
+        @if (identificationConfirmed()) {
 
-          <button
-            class="secondary"
-            type="button"
-            (click)="reuse()"
-            [disabled]="busy()">
-            Reuse
-          </button>
-        </div>
+          <div class="pills">
+            @if (recyclingLoading()) {
+              <span class="bin">Recyclable: checking...</span>
+              <span class="bin">Bin: checking...</span>
+            } @else {
+              <span
+                [class.yes]="scan.recyclable"
+                [class.no]="!scan.recyclable">
+                Recyclable: {{ scan.recyclable ? 'yes' : 'no' }}
+              </span>
+
+              <span class="bin">Bin: {{ scan.bin }}</span>
+            }
+          </div>
+
+          @if (scan.notes) {
+            <p class="notes">{{ scan.notes }}</p>
+          }
+
+          @if (scan.recyclable && !recyclingLoading()) {
+            <div class="impact-preview">
+              <p>
+                Each one ≈
+                {{ scan.waterLiters }} L water,
+                {{ scan.co2Kg }} kg CO₂,
+                {{ scan.materialGrams }} g
+                {{ scan.materialLabel }}
+                · +{{ scan.rewardPoints }} pts
+              </p>
+            </div>
+
+            <div class="qty">
+              <button
+                type="button"
+                (click)="changeQty(-1)"
+                [disabled]="busy()">
+                −
+              </button>
+
+              <strong>{{ quantity() }}</strong>
+
+              <button
+                type="button"
+                (click)="changeQty(1)"
+                [disabled]="busy()">
+                +
+              </button>
+            </div>
+          }
+
+          @if (recycleResult(); as done) {
+            <div class="saved">
+              <h3>Nice work</h3>
+
+              <p>
+                Recycling {{ done.quantity }}
+                {{ done.itemName }}
+                {{ done.quantity > 1 ? 's' : '' }}
+                avoided about
+                <strong>{{ done.waterLitersThisTurn }} L water</strong>,
+                <strong>{{ done.co2KgThisTurn }} kg greenhouse gas</strong>,
+                and
+                <strong>
+                  {{ done.materialGramsThisTurn }} g
+                  {{ done.materialLabel }}
+                </strong>.
+              </p>
+
+              <p>+{{ done.pointsThisTurn }} points</p>
+
+              @if (done.newBadges.length) {
+                <p>New rewards: {{ done.newBadges.join(', ') }}</p>
+              }
+            </div>
+          }
+
+          <div class="row">
+            <button
+              class="primary"
+              type="button"
+              (click)="recycle()"
+              [disabled]="
+                !scan.recyclable ||
+                recyclingLoading() ||
+                busy()
+              ">
+              Recycle
+            </button>
+
+            <button
+              class="secondary"
+              type="button"
+              (click)="reuse()"
+              [disabled]="busy()">
+              Reuse
+            </button>
+          </div>
+        }
 
         <button
           class="ghost"
           type="button"
-          (click)="closeResult()">
+          (click)="closeResult()"
+          [disabled]="busy() || correctionLoading()">
           Scan another
         </button>
       }
 
       <!-- REUSE SCREEN -->
-      @if (reuseMode()) {
+      @if (reuseMode() && identificationConfirmed()) {
         @if (reuseResult(); as reuse) {
 
-          <!-- LIST OF DIY IDEAS -->
           @if (!selectedReuse()) {
             <div class="reuse-section">
               <div class="reuse-header">
@@ -235,7 +326,6 @@
             </div>
           }
 
-          <!-- SELECTED DIY IDEA -->
           @if (selectedReuse(); as idea) {
             <div class="reuse-detail">
               <button
@@ -317,7 +407,6 @@
           }
 
         } @else {
-          <!-- LOADING / ERROR STATE -->
           <div class="reuse-section">
             <p class="eyebrow">AI REUSE</p>
             <h3>Give it another life</h3>
@@ -327,6 +416,7 @@
                 Preparing your {{ reuseDifficulty().toLowerCase() }}
                 DIY ideas...
               </p>
+
               <p class="reuse-help">
                 Your ideas are being generated in the background.
               </p>

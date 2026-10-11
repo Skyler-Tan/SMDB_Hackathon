@@ -1,3 +1,4 @@
+
 package com.threer.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -11,7 +12,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -27,294 +30,323 @@ public class TavilySearchService {
     private String apiKey;
 
     public TavilySearchService(ObjectMapper objectMapper) {
-
         this.objectMapper = objectMapper;
 
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(30))
+                .connectTimeout(Duration.ofSeconds(15))
+                .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
     }
 
+    /**
+     * Search for recycling information specifically relevant to Malaysia.
+     *
+     * Search priority:
+     * 1. Malaysian government and official recycling sources.
+     * 2. Malaysian recycling centres and collection programmes.
+     * 3. General Malaysia-specific recycling guidance.
+     *
+     * Groq is not used by this service.
+     */
     public List<SearchResult> searchRecyclingInformation(
             String itemName,
             String brand,
             String material) {
 
-        try {
+        String name = safe(itemName);
+        String mat = safe(material);
+        String brandName = safe(brand);
 
-            System.out.println(
-                    "========== TAVILY SEARCH =========="
-            );
+        System.out.println("========== MALAYSIA RECYCLING SEARCH ==========");
+        System.out.println("Item: " + name);
+        System.out.println("Material: " + mat);
 
-            String query =
-        "\"" + itemName + "\" "
-        + "\"" + brand + "\" "
-        + "\"" + material + "\" "
-        + "packaging recycling Malaysia";
+        List<String> queries = buildMalaysiaQueries(
+                name,
+                mat,
+                brandName
+        );
 
-            System.out.println(
-                    "Search query: " + query
-            );
+        Map<String, SearchResult> collected =
+                new LinkedHashMap<>();
 
-            Map<String, Object> requestBody =
-                    Map.of(
-                            "query", query,
-                            "search_depth", "basic",
-                            "topic", "general",
-                            "max_results", 5,
-                            "include_answer", false
+        for (String query : queries) {
+
+            System.out.println("Tavily query: " + query);
+
+            List<SearchResult> results = search(query);
+
+            for (SearchResult result : results) {
+
+                if (!isMalaysiaRelevant(result)) {
+                    System.out.println(
+                            "Excluded non-Malaysia/unverified source: "
+                                    + result.url()
                     );
-
-            String json =
-                    objectMapper.writeValueAsString(
-                            requestBody
-                    );
-
-            HttpRequest request =
-                    HttpRequest.newBuilder()
-                            .uri(URI.create(API_URL))
-                            .timeout(Duration.ofSeconds(60))
-                            .header(
-                                    "Authorization",
-                                    "Bearer " + apiKey
-                            )
-                            .header(
-                                    "Content-Type",
-                                    "application/json"
-                            )
-                            .POST(
-                                    HttpRequest.BodyPublishers.ofString(
-                                            json
-                                    )
-                            )
-                            .build();
-
-            System.out.println(
-                    "Sending request to Tavily..."
-            );
-
-            HttpResponse<String> response =
-                    httpClient.send(
-                            request,
-                            HttpResponse.BodyHandlers.ofString()
-                    );
-
-            System.out.println(
-                    "Tavily HTTP status: "
-                            + response.statusCode()
-            );
-
-            if (response.statusCode() < 200 ||
-                    response.statusCode() >= 300) {
-
-                throw new IllegalStateException(
-                        "Tavily request failed with HTTP "
-                                + response.statusCode()
-                                + ": "
-                                + response.body()
-                );
-            }
-
-            JsonNode root =
-                    objectMapper.readTree(
-                            response.body()
-                    );
-
-            JsonNode results =
-                    root.path("results");
-
-            List<SearchResult> searchResults =
-                    new ArrayList<>();
-
-            if (results.isArray()) {
-
-                for (JsonNode result : results) {
-
-                    String title =
-                            result
-                                    .path("title")
-                                    .asText("");
-
-                    String url =
-                            result
-                                    .path("url")
-                                    .asText("");
-
-                    String content =
-                            result
-                                    .path("content")
-                                    .asText("");
-
-                    searchResults.add(
-                            new SearchResult(
-                                    title,
-                                    url,
-                                    content
-                            )
-                    );
+                    continue;
                 }
+
+                String key = result.url().isBlank()
+                        ? result.title() + result.content()
+                        : result.url();
+
+                collected.putIfAbsent(key, result);
             }
 
-            System.out.println(
-                    "Tavily results found: "
-                            + searchResults.size()
-            );
-
-            for (SearchResult result : searchResults) {
-
-                System.out.println(
-                        "\n--- SEARCH RESULT ---"
-                );
-
-                System.out.println(
-                        "Title: "
-                                + result.title()
-                );
-
-                System.out.println(
-                        "URL: "
-                                + result.url()
-                );
-
-                System.out.println(
-                        "Content: "
-                                + result.content()
-                );
+            // Stop once enough potentially relevant sources are collected.
+            if (collected.size() >= 8) {
+                break;
             }
-
-            System.out.println(
-                    "========== TAVILY SEARCH COMPLETE =========="
-            );
-
-            return searchResults;
-
-        } catch (Exception e) {
-
-            System.out.println(
-                    "Tavily search failed:"
-            );
-
-            e.printStackTrace();
-
-            /*
-             * Do not break the AI scan if the search
-             * service temporarily fails.
-             */
-            return List.of();
         }
+
+        List<SearchResult> finalResults =
+                new ArrayList<>(collected.values());
+
+        if (finalResults.size() > 8) {
+            finalResults = new ArrayList<>(
+                    finalResults.subList(0, 8)
+            );
+        }
+
+        System.out.println(
+                "Malaysia-related results retained: "
+                        + finalResults.size()
+        );
+        System.out.println("========== SEARCH COMPLETE ==========");
+
+        return finalResults;
     }
 
-    public List<SearchResult> searchGeneral(
-        String query) {
+    /**
+     * Create multiple targeted searches rather than relying on one query.
+     */
+    private List<String> buildMalaysiaQueries(
+            String itemName,
+            String material,
+            String brand) {
 
-    try {
+        String item = cleanForQuery(itemName);
+        String mat = cleanForQuery(material);
 
-        System.out.println(
-                "========== TAVILY GENERAL SEARCH =========="
+        List<String> queries = new ArrayList<>();
+
+        // Search official Malaysian sources first.
+        queries.add(
+                "site:gov.my Malaysia " + item + " "
+                        + mat + " recycling disposal guidelines"
         );
 
-        System.out.println(
-                "Search query: " + query
+        queries.add(
+                "Malaysia official recycling centre accepted items "
+                        + item + " " + mat
         );
 
-        Map<String, Object> requestBody =
-                Map.of(
+        // Look for actual acceptance rules from Malaysian facilities.
+        queries.add(
+                "Malaysia recycling centre accepts "
+                        + item + " " + mat
+                        + " collection requirements"
+        );
+
+        queries.add(
+                "Malaysia " + mat
+                        + " recycling rules accepted items "
+                        + "recycling bin disposal"
+        );
+
+        // Item-specific cases need additional guidance.
+        if (item.toLowerCase(Locale.ROOT).contains("receipt")) {
+            queries.add(
+                    "Malaysia thermal paper receipt recycling "
+                            + "official disposal guidance"
+            );
+        }
+
+        if (mat.toLowerCase(Locale.ROOT).contains("plastic")) {
+            queries.add(
+                    "Malaysia PET 1 HDPE 2 PP 5 plastic recycling "
+                            + "centres accepted plastic items"
+            );
+        }
+
+        // Brand is only an additional search, not the main evidence.
+        if (!brand.isBlank()) {
+            queries.add(
+                    "\"" + brand + "\" " + item
+                            + " Malaysia material recycling information"
+            );
+        }
+
+        return queries;
+    }
+
+    /**
+     * General search method for other app features.
+     */
+    public List<SearchResult> searchGeneral(String query) {
+        return search(query);
+    }
+
+    private List<SearchResult> search(String query) {
+
+        if (apiKey == null || apiKey.isBlank()) {
+            System.err.println("Tavily API key is missing.");
+            return List.of();
+        }
+
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                Map<String, Object> body = Map.of(
                         "query", query,
-                        "search_depth", "basic",
+                        "search_depth", "advanced",
                         "topic", "general",
-                        "max_results", 5,
+                        "max_results", 8,
                         "include_answer", false
                 );
 
-        String json =
-                objectMapper.writeValueAsString(
-                        requestBody
-                );
+                String json = objectMapper.writeValueAsString(body);
 
-        HttpRequest request =
-                HttpRequest.newBuilder()
+                HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(API_URL))
-                        .timeout(Duration.ofSeconds(60))
-                        .header(
-                                "Authorization",
-                                "Bearer " + apiKey
-                        )
-                        .header(
-                                "Content-Type",
-                                "application/json"
-                        )
-                        .POST(
-                                HttpRequest.BodyPublishers
-                                        .ofString(json)
-                        )
+                        .timeout(Duration.ofSeconds(30))
+                        .header("Authorization", "Bearer " + apiKey)
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(json))
                         .build();
 
-        HttpResponse<String> response =
-                httpClient.send(
+                HttpResponse<String> response = httpClient.send(
                         request,
                         HttpResponse.BodyHandlers.ofString()
                 );
 
-        System.out.println(
-                "Tavily HTTP status: "
-                        + response.statusCode()
-        );
+                int status = response.statusCode();
 
-        if (response.statusCode() < 200 ||
-                response.statusCode() >= 300) {
+                System.out.println("Tavily HTTP status: " + status);
 
-            throw new IllegalStateException(
-                    "Tavily request failed with HTTP "
-                            + response.statusCode()
-            );
-        }
+                if (status == 429 || status >= 500) {
+                    if (attempt < 2) {
+                        Thread.sleep(1000);
+                        continue;
+                    }
 
-        JsonNode root =
-                objectMapper.readTree(
+                    System.err.println(
+                            "Tavily temporarily unavailable."
+                    );
+                    return List.of();
+                }
+
+                if (status < 200 || status >= 300) {
+                    System.err.println(
+                            "Tavily request failed: HTTP "
+                                    + status + " " + response.body()
+                    );
+                    return List.of();
+                }
+
+                JsonNode root = objectMapper.readTree(
                         response.body()
                 );
 
-        JsonNode results =
-                root.path("results");
+                JsonNode nodes = root.path("results");
 
-        List<SearchResult> searchResults =
-                new ArrayList<>();
+                List<SearchResult> results = new ArrayList<>();
 
-        if (results.isArray()) {
+                if (nodes.isArray()) {
+                    for (JsonNode node : nodes) {
 
-            for (JsonNode result : results) {
+                        String title =
+                                node.path("title").asText("");
 
-                searchResults.add(
-                        new SearchResult(
-                                result.path("title")
-                                        .asText(""),
-                                result.path("url")
-                                        .asText(""),
-                                result.path("content")
-                                        .asText("")
-                        )
+                        String url =
+                                node.path("url").asText("");
+
+                        String content =
+                                node.path("content").asText("");
+
+                        if (!title.isBlank() || !content.isBlank()) {
+                            results.add(new SearchResult(
+                                    title,
+                                    url,
+                                    content
+                            ));
+                        }
+                    }
+                }
+
+                return results;
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+
+                System.err.println(
+                        "Tavily request interrupted."
                 );
+
+                return List.of();
+
+            } catch (Exception e) {
+                System.err.println(
+                        "Tavily search failed: " + e.getMessage()
+                );
+
+                return List.of();
             }
         }
 
-        System.out.println(
-                "General results found: "
-                        + searchResults.size()
-        );
-
-        return searchResults;
-
-    } catch (Exception e) {
-
-        System.out.println(
-                "Tavily general search failed:"
-        );
-
-        e.printStackTrace();
-
         return List.of();
     }
-}
+
+    /**
+     * Exclude results that cannot reasonably be connected to Malaysia.
+     *
+     * Malaysian domains are strong signals. For other domains, require
+     * explicit Malaysia-related context in the title or content.
+     *
+     * This is a relevance filter, not a guarantee that the source is official.
+     */
+    private boolean isMalaysiaRelevant(SearchResult result) {
+
+        String url = safe(result.url())
+                .toLowerCase(Locale.ROOT);
+
+        String text = (
+                safe(result.title()) + " "
+                        + safe(result.content())
+        ).toLowerCase(Locale.ROOT);
+
+        // Malaysian government, education and local authority domains.
+        if (url.matches(".*://([a-z0-9-]+\\.)*gov\\.my(/.*)?")
+                || url.matches(".*://([a-z0-9-]+\\.)*edu\\.my(/.*)?")) {
+            return true;
+        }
+
+        // Malaysian country-code domains.
+        if (url.matches(".*://([a-z0-9-]+\\.)*com\\.my(/.*)?")
+                || url.matches(".*://([a-z0-9-]+\\.)*org\\.my(/.*)?")
+                || url.matches(".*://([a-z0-9-]+\\.)*net\\.my(/.*)?")) {
+            return true;
+        }
+
+        // Other websites must explicitly discuss Malaysia.
+        return text.contains("malaysia")
+                || text.contains("malaysian")
+                || text.contains("majlis bandaraya")
+                || text.contains("majlis perbandaran")
+                || text.contains("majlis daerah")
+                || text.contains("local council malaysia");
+    }
+
+    private String cleanForQuery(String value) {
+        return safe(value)
+                .replace("\"", " ")
+                .replace("\n", " ")
+                .replace("\r", " ")
+                .trim();
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value.trim();
+    }
 
     public record SearchResult(
             String title,
