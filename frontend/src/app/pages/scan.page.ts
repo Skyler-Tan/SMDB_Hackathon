@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 import { ApiService } from '../api.service';
 
 import {
@@ -28,7 +29,10 @@ type Difficulty = 'Easy' | 'Medium' | 'Hard';
 })
 export class ScanPage implements AfterViewInit, OnDestroy {
 
-  constructor(private readonly api: ApiService) {}
+  constructor(
+    private readonly api: ApiService,
+    private readonly router: Router
+  ) {}
 
   @ViewChild('video')
   video!: ElementRef<HTMLVideoElement>;
@@ -357,6 +361,22 @@ export class ScanPage implements AfterViewInit, OnDestroy {
     if (next >= 1) {
       this.quantity.set(next);
     }
+  }
+
+  findRecyclingCentres() {
+    const scan = this.result();
+    if (!scan) return;
+
+    // Open the map filtered to the material detected by the scan.
+    // Recording the recycling action is left for the user to confirm on the map.
+    void this.router.navigate(['/map'], {
+      queryParams: {
+        material: scan.material || '',
+        itemName: scan.name || '',
+        itemId: scan.itemId || '',
+        quantity: this.quantity()
+      }
+    });
   }
 
   recycle() {

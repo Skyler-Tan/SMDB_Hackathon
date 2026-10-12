@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { HttpClientTestingModule } from '@angular/common/http/testing';
+import { ActivatedRoute } from '@angular/router';
 import { of } from 'rxjs';
-
 import { RecyclingMapComponent } from './recycling-map.component';
 import { ApiService } from '../api.service';
 
@@ -10,14 +11,10 @@ describe('RecyclingMapComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [RecyclingMapComponent],
+      imports: [RecyclingMapComponent, HttpClientTestingModule],
       providers: [
-        {
-          provide: ApiService,
-          useValue: {
-            recyclingCentres: () => of([])
-          }
-        }
+        { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: { get: () => null } } } },
+        { provide: ApiService, useValue: { recycle: () => of({ pointsThisTurn: 0 }) } }
       ]
     }).compileComponents();
 

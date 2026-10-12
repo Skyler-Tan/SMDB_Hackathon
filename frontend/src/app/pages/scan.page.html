@@ -158,13 +158,13 @@
           <button
             class="primary"
             type="button"
-            (click)="recycle()"
+            (click)="findRecyclingCentres()"
             [disabled]="
               !scan.recyclable ||
               recyclingLoading() ||
               busy()
             ">
-            Recycle
+            Find recycling centres
           </button>
 
           <button
