@@ -1,3 +1,4 @@
+
 package com.threer.model;
 
 import org.springframework.data.annotation.Id;
@@ -5,7 +6,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
 
-@Document("scanned_items")
+@Document(collection = "scanned_items")
 public class ScannedItem {
 
     @Id
@@ -15,15 +16,25 @@ public class ScannedItem {
     private String brand;
     private String size;
     private String container;
-
     private String material;
-    private boolean recyclable;
-    private String bin;
 
+    private boolean recyclable = false;
+    private String bin = "unknown";
     private String description;
+
     private double confidence;
 
+    // Whether the user has confirmed the identified item.
+    private boolean identificationConfirmed = false;
+
+    // UNVERIFIED, RECYCLABLE, or NOT_RECYCLABLE.
+    private String recyclingStatus = "UNVERIFIED";
+
     private Instant scannedAt;
+
+    public ScannedItem() {
+        this.scannedAt = Instant.now();
+    }
 
     public String getId() {
         return id;
@@ -103,6 +114,26 @@ public class ScannedItem {
 
     public void setConfidence(double confidence) {
         this.confidence = confidence;
+    }
+
+    public boolean isIdentificationConfirmed() {
+        return identificationConfirmed;
+    }
+
+    public void setIdentificationConfirmed(boolean identificationConfirmed) {
+        this.identificationConfirmed = identificationConfirmed;
+    }
+
+    public String getRecyclingStatus() {
+        return recyclingStatus;
+    }
+
+    public void setRecyclingStatus(String recyclingStatus) {
+        if (recyclingStatus == null || recyclingStatus.isBlank()) {
+            this.recyclingStatus = "UNVERIFIED";
+        } else {
+            this.recyclingStatus = recyclingStatus.trim().toUpperCase();
+        }
     }
 
     public Instant getScannedAt() {

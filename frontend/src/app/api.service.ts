@@ -1,86 +1,85 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-
 import {
   CatalogItem,
   DiyGuide,
+  NearbyPlace,
   RecycleResult,
   ScanResult,
   Stats,
   ReuseResult
 } from './models';
 
-@Injectable({
-  providedIn: 'root'
-})
+@Injectable({ providedIn: 'root' })
 export class ApiService {
+  private readonly apiUrl = 'http://localhost:8080/api';
 
+<<<<<<< HEAD
   private readonly apiUrl = '/api';
 
   constructor(
     private readonly http: HttpClient
   ) {}
+=======
+  constructor(private readonly http: HttpClient) {}
+>>>>>>> origin/main
 
   scan(image: string) {
     return this.http.post<ScanResult>(
       `${this.apiUrl}/scan`,
-      {
-        image
-      }
+      { image }
     );
   }
 
-recycling(itemId: string) {
-  return this.http.post<ScanResult>(
-    `${this.apiUrl}/recycling/${itemId}`,
-    {}
-  );
-}
+  confirmIdentification(itemId: string) {
+    return this.http.post<ScanResult>(
+      `${this.apiUrl}/scan/${encodeURIComponent(itemId)}/confirm`,
+      {}
+    );
+  }
+
+  correctItemName(itemId: string, name: string) {
+    return this.http.put<{
+      success: boolean;
+      name: string;
+      identificationConfirmed?: boolean;
+    }>(
+      `${this.apiUrl}/scan/${encodeURIComponent(itemId)}/correct`,
+      { name }
+    );
+  }
+
+  recycling(itemId: string) {
+    return this.http.post<ScanResult>(
+      `${this.apiUrl}/recycling/${encodeURIComponent(itemId)}`,
+      {}
+    );
+  }
 
   catalog() {
     return this.http.get<CatalogItem[]>(
       `${this.apiUrl}/catalog`
     );
   }
-  
 
-  recycle(
-    itemId: string,
-    quantity: number
-  ) {
+  recycle(itemId: string, quantity: number) {
     return this.http.post<RecycleResult>(
       `${this.apiUrl}/recycle`,
-      {
-        itemId,
-        quantity,
-        userId: 'local-user'
-      }
+      { itemId, quantity, userId: 'local-user' }
     );
   }
 
   stats() {
     return this.http.get<Stats>(
       `${this.apiUrl}/stats`,
-      {
-        params: {
-          userId: 'local-user'
-        }
-      }
+      { params: { userId: 'local-user' } }
     );
   }
 
-  diy(
-    material: string,
-    difficulty: string
-  ) {
+  diy(material: string, difficulty: string) {
     return this.http.get<DiyGuide[]>(
       `${this.apiUrl}/diy`,
-      {
-        params: {
-          material,
-          difficulty
-        }
-      }
+      { params: { material, difficulty } }
     );
   }
 
@@ -91,6 +90,7 @@ recycling(itemId: string) {
   }
 
   reuse(
+    itemId: string,
     name: string,
     brand: string,
     size: string,
@@ -101,6 +101,7 @@ recycling(itemId: string) {
     return this.http.post<ReuseResult>(
       `${this.apiUrl}/reuse`,
       {
+        itemId,
         name,
         brand,
         size,
@@ -108,6 +109,13 @@ recycling(itemId: string) {
         material,
         difficulty
       }
+    );
+  }
+
+  nearbyRecycling(lat: number, lng: number, material: string) {
+    return this.http.get<NearbyPlace[]>(
+      `${this.apiUrl}/places/recycling`,
+      { params: { lat: lat.toString(), lng: lng.toString(), material } }
     );
   }
 }

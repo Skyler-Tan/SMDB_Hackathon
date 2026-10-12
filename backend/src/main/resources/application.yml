@@ -19,3 +19,6 @@ groq:
 
 tavily:
   api-key:  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
+
+locationiq:
+  api-key: pk.2d5fe192eb050b66b97f2bc06301d97c
