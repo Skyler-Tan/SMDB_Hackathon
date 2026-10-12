@@ -3,11 +3,13 @@ import { ScanPage } from './pages/scan.page';
 import { ReusePage } from './pages/reuse.page';
 import { DiyDetailPage } from './pages/diy-detail.page';
 import { ImpactPage } from './pages/impact.page';
+import { RecyclingMapComponent } from './recycling-map/recycling-map.component';
 
 export const routes: Routes = [
   { path: '', component: ScanPage },
   { path: 'reuse', component: ReusePage },
   { path: 'reuse/:id', component: DiyDetailPage },
   { path: 'impact', component: ImpactPage },
+  { path: 'map', component: RecyclingMapComponent },
   { path: '**', redirectTo: '' }
 ];

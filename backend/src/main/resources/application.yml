@@ -15,7 +15,7 @@ threer:
   default-user-id: local-user
 
 groq:
-  api-key: ${GROQ_API_KEY}
+  api-key: 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
 
 tavily:
-  api-key: ${TAVILY_API_KEY}
+  api-key:  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

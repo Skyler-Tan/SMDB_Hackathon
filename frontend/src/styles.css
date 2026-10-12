@@ -1,3 +1,5 @@
+@import "leaflet/dist/leaflet.css";
+
 :root {
   --bg: #0f1f17;
   --panel: #173324;
@@ -45,3 +47,4 @@ button {
 a {
   color: inherit;
 }
+
