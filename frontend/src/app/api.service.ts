@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import {
   CatalogItem,
   DiyGuide,
+  NearbyPlace,
   RecycleResult,
   ScanResult,
   Stats,
@@ -100,6 +101,13 @@ export class ApiService {
         material,
         difficulty
       }
+    );
+  }
+
+  nearbyRecycling(lat: number, lng: number, material: string) {
+    return this.http.get<NearbyPlace[]>(
+      `${this.apiUrl}/places/recycling`,
+      { params: { lat: lat.toString(), lng: lng.toString(), material } }
     );
   }
 }

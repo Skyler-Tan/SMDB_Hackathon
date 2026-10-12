@@ -77,6 +77,46 @@
           </div>
         </div>
 
+        <!-- CONDITION SCORE -->
+        @if (scan.conditionScore !== undefined) {
+          <div class="condition-card">
+            <div class="condition-top">
+              <div class="condition-info">
+                <p class="eyebrow">Recyclability score</p>
+                <p class="condition-label">{{ scan.conditionLabel }}</p>
+              </div>
+              <div
+                class="condition-ring"
+                [class.ring-excellent]="scan.conditionScore >= 80"
+                [class.ring-good]="scan.conditionScore >= 60 && scan.conditionScore < 80"
+                [class.ring-fair]="scan.conditionScore >= 40 && scan.conditionScore < 60"
+                [class.ring-poor]="scan.conditionScore < 40">
+                <span class="condition-score">{{ scan.conditionScore }}</span>
+                <span class="condition-max">/100</span>
+              </div>
+            </div>
+
+            <div class="condition-bar-track">
+              <div
+                class="condition-bar-fill"
+                [style.width.%]="scan.conditionScore"
+                [class.fill-excellent]="scan.conditionScore >= 80"
+                [class.fill-good]="scan.conditionScore >= 60 && scan.conditionScore < 80"
+                [class.fill-fair]="scan.conditionScore >= 40 && scan.conditionScore < 60"
+                [class.fill-poor]="scan.conditionScore < 40">
+              </div>
+            </div>
+
+            @if (scan.conditionTips.length) {
+              <ul class="condition-tips">
+                @for (tip of scan.conditionTips; track tip) {
+                  <li>{{ tip }}</li>
+                }
+              </ul>
+            }
+          </div>
+        }
+
         <!-- CONFIRMATION FOR MEDIUM / LOW CONFIDENCE -->
         @if (
           identificationLevel() !== 'high' &&
@@ -244,6 +284,67 @@
             </div>
           }
 
+          <!-- NEARBY RECYCLING CENTRES -->
+          @if (recycleResult()) {
+            <div class="nearby-section">
+              <div class="nearby-header">
+                <p class="eyebrow">Nearby</p>
+                <h3>Drop-off centres</h3>
+              </div>
+
+              @if (nearbyLoading()) {
+                <div class="nearby-loading">
+                  <span class="nearby-spinner"></span>
+                  <span>Finding centres near you…</span>
+                </div>
+              }
+
+              @if (nearbyError() && !nearbyLoading()) {
+                <p class="nearby-error">{{ nearbyError() }}</p>
+                <button
+                  class="ghost nearby-retry"
+                  type="button"
+                  (click)="getNearby(result()!.material)">
+                  Try again
+                </button>
+              }
+
+              @if (!nearbyLoading() && nearbyPlaces().length) {
+                <ul class="nearby-list">
+                  @for (place of nearbyPlaces(); track place.mapsUrl) {
+                    <li class="nearby-card">
+                      <div class="nearby-card-body">
+                        <p class="nearby-name">{{ place.name }}</p>
+                        <p class="nearby-address">{{ place.address }}</p>
+                        <div class="nearby-meta">
+                          @if (place.rating > 0) {
+                            <span class="nearby-rating">
+                              ★ {{ place.rating.toFixed(1) }}
+                            </span>
+                          }
+                          <span
+                            class="nearby-open"
+                            [class.open]="place.openNow === 'Open now'"
+                            [class.closed]="place.openNow === 'Closed'">
+                            {{ place.openNow }}
+                          </span>
+                        </div>
+                      </div>
+                      <a
+                        class="nearby-directions"
+                        [href]="place.mapsUrl"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        [attr.aria-label]="'Get directions to ' + place.name">
+                        ↗
+                      </a>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+          }
+
           <div class="row">
             <button
               class="primary"
@@ -366,9 +467,20 @@
               @if (idea.steps.length) {
                 <div class="reuse-list">
                   <h3>Steps</h3>
-                  <ol>
-                    @for (step of idea.steps; track step) {
-                      <li>{{ step }}</li>
+                  <ol class="step-list">
+                    @for (step of idea.steps; track step; let i = $index) {
+                      <li class="step-item">
+                        <div class="step-visual">
+                          <div class="step-badge">{{ i + 1 }}</div>
+                          <div class="step-icon" [innerHTML]="getStepIcon(step)"></div>
+                          @if (!$last) {
+                            <div class="step-connector"></div>
+                          }
+                        </div>
+                        <div class="step-body">
+                          <p class="step-text">{{ step }}</p>
+                        </div>
+                      </li>
                     }
                   </ol>
                 </div>
