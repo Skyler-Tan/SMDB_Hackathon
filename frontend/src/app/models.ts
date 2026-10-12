@@ -41,6 +41,11 @@ export interface ScanResult {
 
   matchedLabel: string;
   confidence: number;
+
+  // Condition score
+  conditionScore: number;
+  conditionLabel: string;
+  conditionTips: string[];
 }
 
 export interface Stats {
@@ -99,4 +104,14 @@ export interface ReuseIdea {
 export interface ReuseResult {
   difficulty: string;
   ideas: ReuseIdea[];
+}
+
+export interface NearbyPlace {
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  openNow: string;   // 'Open now' | 'Closed' | 'Unknown'
+  rating: number;    // 0 if not available
+  mapsUrl: string;   // deep-link to Google Maps
 }

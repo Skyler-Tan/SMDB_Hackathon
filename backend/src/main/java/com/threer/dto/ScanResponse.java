@@ -33,6 +33,11 @@ public class ScanResponse {
     private String matchedLabel;
     private double confidence;
 
+    // Condition score
+    private int conditionScore;
+    private String conditionLabel;
+    private java.util.List<String> conditionTips = new java.util.ArrayList<>();
+
     public String getItemId() {
         return itemId;
     }
@@ -187,5 +192,31 @@ public class ScanResponse {
 
     public void setConfidence(double confidence) {
         this.confidence = confidence;
+    }
+
+    public int getConditionScore() {
+        return conditionScore;
+    }
+
+    public void setConditionScore(int conditionScore) {
+        this.conditionScore = conditionScore;
+    }
+
+    public String getConditionLabel() {
+        return conditionLabel;
+    }
+
+    public void setConditionLabel(String conditionLabel) {
+        this.conditionLabel = conditionLabel;
+    }
+
+    public java.util.List<String> getConditionTips() {
+        return conditionTips;
+    }
+
+    public void setConditionTips(java.util.List<String> conditionTips) {
+        this.conditionTips = conditionTips == null
+                ? new java.util.ArrayList<>()
+                : conditionTips;
     }
 }

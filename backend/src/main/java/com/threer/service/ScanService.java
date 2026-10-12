@@ -20,17 +20,20 @@ public class ScanService {
     private final TavilySearchService tavilySearchService;
     private final ScannedItemRepository scannedItemRepository;
     private final ImpactService impactService;
+    private final ConditionService conditionService;
 
     public ScanService(
             GroqVisionService visionService,
             TavilySearchService tavilySearchService,
             ScannedItemRepository scannedItemRepository,
-            ImpactService impactService
+            ImpactService impactService,
+            ConditionService conditionService
     ) {
         this.visionService = visionService;
         this.tavilySearchService = tavilySearchService;
         this.scannedItemRepository = scannedItemRepository;
         this.impactService = impactService;
+        this.conditionService = conditionService;
     }
 
     /**
@@ -409,6 +412,13 @@ public class ScanService {
         response.setRewardPoints(rewardPoints);
         response.setMatchedLabel(item.getName());
         response.setConfidence(item.getConfidence());
+
+        // Condition score — pure rule-based, no AI call
+        ConditionService.ConditionResult condition =
+                conditionService.evaluate(item);
+        response.setConditionScore(condition.score());
+        response.setConditionLabel(condition.label());
+        response.setConditionTips(condition.tips());
 
         return response;
     }
