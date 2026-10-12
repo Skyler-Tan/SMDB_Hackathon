@@ -32,7 +32,7 @@ public class MapService {
     private static final int RADIUS_METRES = 10000;
 
     /** Maximum results returned to the frontend. */
-    private static final int MAX_RESULTS = 5;
+    private static final int MAX_RESULTS = 50;
 
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -69,6 +69,8 @@ public class MapService {
                 + "&lon=" + lng
                 + "&tag=" + URLEncoder.encode(tag, StandardCharsets.UTF_8)
                 + "&radius=" + RADIUS_METRES
+                + "&limit=" + MAX_RESULTS
+                + "&dedupe=1"
                 + "&format=json";
 
         System.out.println("========== LOCATIONIQ NEARBY ==========");
@@ -183,12 +185,14 @@ public class MapService {
         double placeLng = parseDouble(r.path("lon").asText("0"));
         p.setLat(placeLat);
         p.setLng(placeLng);
+        p.setOsmType(r.path("osm_type").asText(""));
+        p.setOsmId(r.path("osm_id").asText(""));
 
-        // Distance in metres provided by LocationIQ
+        // Keep distance as a numeric field; open/closed status is not provided
+        // by the Nearby API and should not be fabricated.
         double distanceM = r.path("distance").asDouble(0);
-        p.setOpenNow(distanceM > 0
-                ? String.format("%.0f m away", distanceM)
-                : "Unknown distance");
+        p.setDistanceMeters(distanceM);
+        p.setOpenNow("Unknown");
 
         // LocationIQ does not provide ratings
         p.setRating(0);

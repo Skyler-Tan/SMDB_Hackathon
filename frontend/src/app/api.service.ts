@@ -12,17 +12,11 @@ import {
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
-  private readonly apiUrl = 'http://localhost:8080/api';
-
-<<<<<<< HEAD
   private readonly apiUrl = '/api';
 
   constructor(
     private readonly http: HttpClient
   ) {}
-=======
-  constructor(private readonly http: HttpClient) {}
->>>>>>> origin/main
 
   scan(image: string) {
     return this.http.post<ScanResult>(

@@ -1,63 +1,39 @@
 <section class="impact">
-  <p class="eyebrow">Rewards</p>
-  <h1>Your recycle impact</h1>
-
-  @if (error()) {
-    <p class="err">{{ error() }}</p>
-  }
-
+  <header class="impact-header">
+    <p class="eyebrow">YOUR GREEN SCORECARD</p>
+    <h1>Your recycle impact</h1>
+    <p class="intro">Small actions add up. Here's the estimated impact of your recycling journey.</p>
+  </header>
+  @if (error()) { <p class="err">{{ error() }}</p> }
   @if (last(); as done) {
-    <article class="card highlight">
-      <h2>Last recycle</h2>
-      <p>
-        {{ done.quantity }} × {{ done.itemName }} saved about
-        {{ done.waterLitersThisTurn }} L water,
-        {{ done.co2KgThisTurn }} kg greenhouse gas, and
-        {{ done.materialGramsThisTurn }} g {{ done.materialLabel }}.
-      </p>
-      <p>+{{ done.pointsThisTurn }} pts</p>
+    <article class="last-impact">
+      <div class="last-heading"><span class="drop-icon">💧</span><div><p class="eyebrow">LATEST ACTION</p><h2>Look what you saved</h2></div><span class="points-chip">+{{ done.pointsThisTurn }} pts</span></div>
+      <p class="last-description">{{ done.quantity }} × {{ done.itemName }} recycled</p>
+      <div class="last-metrics">
+        <div class="water"><span>Water saved</span><strong>{{ done.waterLitersThisTurn }} <small>L</small></strong></div>
+        <div><span>GHG avoided</span><strong>{{ done.co2KgThisTurn }} <small>kg</small></strong></div>
+        <div><span>Material recovered</span><strong>{{ done.materialGramsThisTurn }} <small>g</small></strong><small class="sub-label">{{ done.materialLabel }}</small></div>
+      </div>
     </article>
   }
-
   @if (stats(); as s) {
-    <div class="grid">
-      <article class="card">
-        <p>Points</p>
-        <strong>{{ s.points }}</strong>
-      </article>
-      <article class="card">
-        <p>Items</p>
-        <strong>{{ s.itemsRecycled }}</strong>
-      </article>
-      <article class="card">
-        <p>Water</p>
-        <strong>{{ s.waterLiters }} L</strong>
-      </article>
-      <article class="card">
-        <p>Greenhouse gas</p>
-        <strong>{{ s.co2Kg }} kg</strong>
-      </article>
-    </div>
-
-    <h2>Badges</h2>
-    @if (s.badges.length === 0) {
-      <p class="muted">Recycle your first item to earn a badge.</p>
-    }
-    <div class="badges">
-      @for (badge of s.badges; track badge) {
-        <span>{{ badge }}</span>
-      }
-    </div>
-
+    <section class="total-section">
+      <p class="eyebrow">ALL-TIME TOTALS</p><h2>Your progress so far</h2>
+      <div class="grid">
+        <article class="stat-card points-card"><span class="stat-icon">🏆</span><p>Reward points</p><strong>{{ s.points }}</strong></article>
+        <article class="stat-card"><span class="stat-icon">♻️</span><p>Items recycled</p><strong>{{ s.itemsRecycled }}</strong></article>
+        <article class="stat-card water-card"><span class="stat-icon">💧</span><p>Water saved</p><strong>{{ s.waterLiters }} <small>L</small></strong><span class="stat-note">Estimated conservation</span></article>
+        <article class="stat-card"><span class="stat-icon">🌱</span><p>Greenhouse gas avoided</p><strong>{{ s.co2Kg }} <small>kg</small></strong></article>
+      </div>
+    </section>
+    <section class="badge-section">
+      <h2>Badges earned</h2>
+      @if (s.badges.length === 0) { <p class="muted">Recycle your first item to earn a badge.</p> }
+      <div class="badges">@for (badge of s.badges; track badge) { <span>🏅 {{ badge }}</span> }</div>
+    </section>
     @if (s.byMaterial.length) {
-      <h2>By material</h2>
-      <ul>
-        @for (row of s.byMaterial; track row.material) {
-          <li>{{ row.material }}: {{ row.count }}</li>
-        }
-      </ul>
+      <section class="material-section"><h2>Items by material</h2><ul>@for (row of s.byMaterial; track row.material) { <li><span>{{ row.material }}</span><strong>{{ row.count }}</strong></li> }</ul></section>
     }
   }
-
-  <p class="fine">Impact numbers are educational estimates of what it takes to make those items, not lab measurements.</p>
+  <p class="fine">Impact figures are educational estimates based on the app's item data, not direct measurements or a guarantee of real-world savings.</p>
 </section>

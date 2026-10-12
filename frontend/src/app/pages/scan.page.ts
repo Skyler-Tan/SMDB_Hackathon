@@ -9,12 +9,9 @@ import {
 } from '@angular/core';
 
 import { CommonModule } from '@angular/common';
-<<<<<<< HEAD
-import { Router } from '@angular/router';
-=======
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
->>>>>>> origin/main
 import { ApiService } from '../api.service';
+import { Router } from '@angular/router';
 
 import {
   ReuseIdea,
@@ -34,14 +31,10 @@ type ConfidenceLevel = 'high' | 'medium' | 'low';
   styleUrl: './scan.page.css'
 })
 export class ScanPage implements AfterViewInit, OnDestroy {
-
   constructor(
     private readonly api: ApiService,
-<<<<<<< HEAD
+    private readonly sanitizer: DomSanitizer,
     private readonly router: Router
-=======
-    private readonly sanitizer: DomSanitizer
->>>>>>> origin/main
   ) {}
 
   @ViewChild('video')
@@ -655,6 +648,24 @@ export class ScanPage implements AfterViewInit, OnDestroy {
    * to find recycling centres nearby. Triggered automatically after
    * a successful recycle event.
    */
+  openRecyclingMap() {
+    const scan = this.result();
+    if (!scan) return;
+    this.router.navigate(['/map'], {
+      queryParams: {
+        material: scan.material,
+        itemName: scan.name,
+        quantity: this.quantity()
+      }
+    });
+  }
+
+  distanceLabel(place: NearbyPlace): string {
+    const metres = place.distanceMeters;
+    if (metres == null || !Number.isFinite(metres) || metres <= 0) return 'Distance unavailable';
+    return metres >= 1000 ? `${(metres / 1000).toFixed(1)} km away` : `${Math.round(metres)} m away`;
+  }
+
   getNearby(material: string) {
     this.nearbyPlaces.set([]);
     this.nearbyError.set('');
