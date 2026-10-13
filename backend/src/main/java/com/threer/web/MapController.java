@@ -12,7 +12,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 
 /**
- * Exposes the Google Places nearby-search to the frontend.
+ * Exposes LocationIQ nearby-search to the frontend.
  *
  * GET /api/places/recycling?lat=3.1390&lng=101.6869&material=plastic
  */

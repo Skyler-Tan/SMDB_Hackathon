@@ -228,16 +228,38 @@
           }
 
           @if (scan.recyclable && !recyclingLoading()) {
-            <div class="impact-preview">
-              <p>
-                Each one ≈
-                {{ scan.waterLiters }} L water,
-                {{ scan.co2Kg }} kg CO₂,
-                {{ scan.materialGrams }} g
-                {{ scan.materialLabel }}
-                · +{{ scan.rewardPoints }} pts
-              </p>
-            </div>
+            <section class="impact-calculator" aria-label="Estimated environmental impact calculator">
+              <div class="impact-calculator-heading">
+                <div>
+                  <p class="eyebrow">YOUR IMPACT ESTIMATE</p>
+                  <h3>What recycling can save</h3>
+                </div>
+                <span class="estimate-badge">Approximate</span>
+              </div>
+              <p class="impact-calculator-copy">Per item estimate × {{ quantity() }} {{ quantity() === 1 ? 'item' : 'items' }}</p>
+              <div class="impact-metrics">
+                <article class="impact-metric water-metric">
+                  <span class="metric-icon" aria-hidden="true">💧</span>
+                  <span class="metric-label">Water saved</span>
+                  <strong>{{ (scan.waterLiters * quantity()).toFixed(1) }} <small>L</small></strong>
+                  <span class="metric-foot">{{ scan.waterLiters }} L per item</span>
+                </article>
+                <article class="impact-metric carbon-metric">
+                  <span class="metric-icon" aria-hidden="true">🌱</span>
+                  <span class="metric-label">GHG avoided</span>
+                  <strong>{{ (scan.co2Kg * quantity()).toFixed(2) }} <small>kg</small></strong>
+                  <span class="metric-foot">{{ scan.co2Kg }} kg per item</span>
+                </article>
+                <article class="impact-metric material-metric">
+                  <span class="metric-icon" aria-hidden="true">♻️</span>
+                  <span class="metric-label">Material recovered</span>
+                  <strong>{{ (scan.materialGrams * quantity()).toFixed(0) }} <small>g</small></strong>
+                  <span class="metric-foot">{{ scan.materialGrams }} g per item</span>
+                </article>
+              </div>
+              <div class="impact-reward"><span>Reward points</span><strong>+{{ scan.rewardPoints * quantity() }} pts</strong></div>
+              <p class="impact-disclaimer">Estimates are educational approximations based on the selected item, not direct measurements.</p>
+            </section>
 
             <div class="qty">
               <button
@@ -259,37 +281,27 @@
           }
 
           @if (recycleResult(); as done) {
-            <div class="saved">
-              <h3>Nice work</h3>
-
-              <p>
-                Recycling {{ done.quantity }}
-                {{ done.itemName }}
-                {{ done.quantity > 1 ? 's' : '' }}
-                avoided about
-                <strong>{{ done.waterLitersThisTurn }} L water</strong>,
-                <strong>{{ done.co2KgThisTurn }} kg greenhouse gas</strong>,
-                and
-                <strong>
-                  {{ done.materialGramsThisTurn }} g
-                  {{ done.materialLabel }}
-                </strong>.
-              </p>
-
-              <p>+{{ done.pointsThisTurn }} points</p>
-
-              @if (done.newBadges.length) {
-                <p>New rewards: {{ done.newBadges.join(', ') }}</p>
-              }
-            </div>
+            <section class="saved impact-result-card">
+              <div class="saved-heading"><span class="saved-check" aria-hidden="true">✓</span><div><p class="eyebrow">IMPACT RECORDED</p><h3>Great work!</h3></div><strong class="saved-points">+{{ done.pointsThisTurn }} pts</strong></div>
+              <p class="saved-summary">{{ done.quantity }} {{ done.itemName }}{{ done.quantity > 1 ? 's' : '' }} recycled</p>
+              <div class="saved-metrics">
+                <div><span>💧 Water saved</span><strong>{{ done.waterLitersThisTurn }} L</strong></div>
+                <div><span>🌱 GHG avoided</span><strong>{{ done.co2KgThisTurn }} kg</strong></div>
+                <div><span>♻️ Material recovered</span><strong>{{ done.materialGramsThisTurn }} g</strong><small>{{ done.materialLabel }}</small></div>
+              </div>
+              @if (done.newBadges.length) { <p class="saved-badges">🏅 New rewards: {{ done.newBadges.join(', ') }}</p> }
+            </section>
           }
 
           <!-- NEARBY RECYCLING CENTRES -->
           @if (recycleResult()) {
             <div class="nearby-section">
               <div class="nearby-header">
-                <p class="eyebrow">Nearby</p>
-                <h3>Drop-off centres</h3>
+                <div>
+                  <p class="eyebrow">Nearby</p>
+                  <h3>Drop-off centres</h3>
+                </div>
+                <button class="nearby-map-button" type="button" (click)="openRecyclingMap()">Open full map ↗</button>
               </div>
 
               @if (nearbyLoading()) {
@@ -322,12 +334,10 @@
                               ★ {{ place.rating.toFixed(1) }}
                             </span>
                           }
-                          <span
-                            class="nearby-open"
-                            [class.open]="place.openNow === 'Open now'"
-                            [class.closed]="place.openNow === 'Closed'">
-                            {{ place.openNow }}
-                          </span>
+                          <span class="nearby-open">{{ distanceLabel(place) }}</span>
+                          @if (place.openNow !== 'Unknown') {
+                            <span class="nearby-open" [class.open]="place.openNow === 'Open now'" [class.closed]="place.openNow === 'Closed'">{{ place.openNow }}</span>
+                          }
                         </div>
                       </div>
                       <a

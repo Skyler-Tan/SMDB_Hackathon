@@ -52,3 +52,24 @@ On a phone, use the same Wi‑Fi and open `http://YOUR-PC-IP:4200`. HTTPS may be
 Savings are **estimates** of what it takes to manufacture those items, so you can see why recycling 3 PET bottles matters. They are not lab measurements.
 
 If the detector is unsure, pick the item from the list (for example **Plastic bottle (1.5 L)** vs **500 ml**).
+
+
+## Map / LocationIQ configuration
+
+The map uses **LocationIQ Nearby API** through the Spring Boot backend to discover recycling facilities. The frontend uses browser geolocation and Leaflet/OpenStreetMap tiles. When a scanned material is supplied, the map only highlights centres whose OpenStreetMap records explicitly list acceptance for that material. Mapping coverage is incomplete, so users should confirm with the facility before travelling.
+
+For security, API keys are read from environment variables instead of being stored in `application.yml`. In the same **Command Prompt** window used to start the backend, set your own valid keys first:
+
+```cmd
+set GROQ_API_KEY=your_groq_key
+set TAVILY_API_KEY=your_tavily_key
+set LOCATIONIQ_API_KEY=your_locationiq_key
+cd backend
+mvn spring-boot:run
+```
+
+Keep the keys private and do not commit them to Git. If a key was already committed or shared, rotate it in the provider dashboard. If the LocationIQ key is missing or invalid, the map's live centre search will fail, but the frontend should still start.
+
+## Updated water-saving calculation UI
+
+The scan result now shows an estimate card that recalculates water saved, greenhouse-gas impact, recovered material and reward points as the selected quantity changes. The Rewards page also presents the latest recycling action and all-time totals in a clearer scorecard. These remain estimates based on the app's catalogue values, not direct measurements.

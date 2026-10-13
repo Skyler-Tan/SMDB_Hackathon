@@ -1,3 +1,4 @@
+
 server:
   port: 8080
 
@@ -5,7 +6,6 @@ spring:
   data:
     mongodb:
       uri: ${MONGODB_URI:mongodb://localhost:27017/threer}
-
   servlet:
     multipart:
       max-file-size: 8MB
@@ -15,10 +15,10 @@ threer:
   default-user-id: local-user
 
 groq:
-  api-key: ${key}
+  api-key: ${GROQ_API_KEY:}
 
 tavily:
-  api-key: ${key}
+  api-key: ${TAVILY_API_KEY:}
 
 locationiq:
-  api-key: ${key}
+  api-key: ${LOCATIONIQ_API_KEY:}
