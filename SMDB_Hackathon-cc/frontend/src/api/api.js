@@ -10,10 +10,11 @@ const api = axios.create({
 });
 
 export const scanApi = {
-  scan: (imageData) => api.post('/scan', { image: imageData }),
+  scan: (imageData, userId) => api.post('/scan', { image: imageData, userId }),
   confirmIdentification: (itemId) => api.post(`/scan/${itemId}/confirm`),
   correctItemName: (itemId, name) => api.put(`/scan/${itemId}/correct`, { name }),
   loadRecycling: (itemId) => api.post(`/recycling/${itemId}`),
+  getScanHistory: (userId) => api.get('/scan/history', { params: { userId } }),
 };
 
 export const catalogApi = {
@@ -25,6 +26,11 @@ export const recycleApi = {
   recycle: (request) => api.post('/recycle', request),
   getStats: (userId) => api.get('/stats', { params: { userId } }),
   getHistory: (userId) => api.get('/history', { params: { userId } }),
+};
+
+export const mapApi = {
+  findNearby: (lat, lng, material = '') =>
+    api.get('/places/recycling', { params: { lat, lng, material } }),
 };
 
 export default api;

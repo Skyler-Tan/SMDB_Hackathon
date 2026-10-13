@@ -11,6 +11,8 @@ public class ScanRequest {
     // Base64 image/data URI sent from Angular
     private String image;
 
+    private String userId;
+
     public List<DetectionDto> getDetections() {
         return detections;
     }
@@ -33,5 +35,13 @@ public class ScanRequest {
 
     public void setImage(String image) {
         this.image = image;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public void setUserId(String userId) {
+        this.userId = userId;
     }
 }

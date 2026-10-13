@@ -13,44 +13,55 @@ export default function CommunityPosts({ userId }) {
   const loadPosts = async () => {
     setLoading(true);
     try {
-      // For now, we'll use history data to create posts
-      // In a real app, this would be a dedicated posts endpoint
-      const response = await recycleApi.getHistory(userId);
-      const historyPosts = response.data.map(event => ({
-        id: event.id,
-        user: { username: 'You', avatar: null },
-        content: `Just recycled ${event.quantity}x ${event.itemName}! Saved ${event.waterLiters}L of water and ${event.co2Kg}kg of CO₂.`,
-        image: null,
-        likes: Math.floor(Math.random() * 50),
-        comments: Math.floor(Math.random() * 20),
-        timestamp: event.createdAt,
-        type: 'recycle'
-      }));
-      
-      // Add some community posts (in real app, these would come from backend)
+      // Static community posts always shown
       const communityPosts = [
         {
-          id: '1',
-          user: { username: 'alishasoteaali', avatar: null },
+          id: 'c1',
+          user: { username: 'alishasoteaali' },
           content: 'Just completed the Plastic Free Week challenge! 🎉 Who else is joining?',
-          image: null,
           likes: 45,
           comments: 12,
           timestamp: new Date(Date.now() - 3600000).toISOString(),
-          type: 'challenge'
+          type: 'challenge',
         },
         {
-          id: '2',
-          user: { username: 'eco_warrior', avatar: null },
+          id: 'c2',
+          user: { username: 'eco_warrior' },
           content: 'Recycled 50 bottles today! Every small action counts for our planet 🌍',
-          image: null,
           likes: 89,
           comments: 23,
           timestamp: new Date(Date.now() - 7200000).toISOString(),
-          type: 'recycle'
-        }
+          type: 'recycle',
+        },
+        {
+          id: 'c3',
+          user: { username: 'green_life_my' },
+          content: 'Did you know recycling one aluminium can saves enough energy to run a TV for 3 hours? ♻️',
+          likes: 62,
+          comments: 8,
+          timestamp: new Date(Date.now() - 86400000).toISOString(),
+          type: 'tip',
+        },
       ];
-      
+
+      // Try to load the user's own recycle history as personal posts
+      let historyPosts = [];
+      try {
+        const response = await recycleApi.getHistory(userId);
+        const data = Array.isArray(response?.data) ? response.data : [];
+        historyPosts = data.map((event) => ({
+          id: event.id || String(Math.random()),
+          user: { username: 'You' },
+          content: `Just recycled ${event.quantity ?? 1}x ${event.itemName ?? 'item'}! Saved ${event.waterLiters ?? 0}L of water and ${event.co2Kg ?? 0}kg of CO₂. 🌱`,
+          likes: 0,
+          comments: 0,
+          timestamp: event.createdAt ?? new Date().toISOString(),
+          type: 'recycle',
+        }));
+      } catch {
+        // History unavailable — still show community posts
+      }
+
       setPosts([...communityPosts, ...historyPosts]);
     } catch (err) {
       console.error('Failed to load posts:', err);
@@ -61,13 +72,14 @@ export default function CommunityPosts({ userId }) {
   };
 
   const formatTimeAgo = (dateString) => {
+    if (!dateString) return '';
     const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now - date;
+    if (isNaN(date.getTime())) return '';
+    const diffMs = Date.now() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
     const diffHours = Math.floor(diffMs / 3600000);
     const diffDays = Math.floor(diffMs / 86400000);
-
+    if (diffMins < 1) return 'just now';
     if (diffMins < 60) return `${diffMins}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     return `${diffDays}d ago`;
@@ -113,6 +125,11 @@ export default function CommunityPosts({ userId }) {
                 {post.type === 'challenge' && (
                   <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded-full">
                     Challenge
+                  </span>
+                )}
+                {post.type === 'tip' && (
+                  <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full">
+                    Tip
                   </span>
                 )}
               </div>

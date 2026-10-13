@@ -15,10 +15,10 @@ threer:
   default-user-id: local-user
 
 groq:
-  api-key: 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
+  api-key: ${api-key}
 
 tavily:
-  api-key:  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
+  api-key:  ${tavily}
 
 locationiq:
-  api-key: pk.2d5fe192eb050b66b97f2bc06301d97c
+  api-key: ${location-iq}

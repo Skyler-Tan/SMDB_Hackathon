@@ -61,6 +61,11 @@ public class ScanController {
         return response;
     }
 
+    @GetMapping("/scan/history")
+    public List<ScannedItem> scanHistory(@RequestParam(required = false) String userId) {
+        return scanService.scanHistory(userId);
+    }
+
     @PostMapping("/scan/{itemId}/confirm")
     public ScanResponse confirmIdentification(@PathVariable String itemId) {
         return scanService.confirmIdentification(itemId);

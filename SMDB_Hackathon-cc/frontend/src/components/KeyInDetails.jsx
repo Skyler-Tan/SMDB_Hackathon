@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Check } from 'lucide-react';
 import { catalogApi } from '../api/api';
 
@@ -22,7 +22,7 @@ export default function KeyInDetails({ onItemSelect }) {
     }
   };
 
-  useState(() => {
+  useEffect(() => {
     loadCatalog();
   }, []);
 
@@ -42,7 +42,17 @@ export default function KeyInDetails({ onItemSelect }) {
 
   const handleSelect = (item) => {
     setSelectedItem(item);
-    onItemSelect({ item, identificationConfirmed: true });
+    onItemSelect({
+      itemId: item.id,
+      name: item.name,
+      brand: item.brand,
+      size: item.size,
+      material: item.material,
+      recyclable: item.recyclable,
+      bin: item.bin,
+      notes: item.description,
+      identificationConfirmed: true,
+    });
   };
 
   return (
