@@ -15,10 +15,10 @@ threer:
   default-user-id: local-user
 
 groq:
-  api-key: ${api-key}
+  api-key: ${key}
 
 tavily:
-  api-key:  ${tavily}
+  api-key:  ${key}
 
 locationiq:
-  api-key: ${location-iq}
+  api-key: ${key}

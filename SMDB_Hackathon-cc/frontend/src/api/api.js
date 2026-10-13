@@ -10,22 +10,37 @@ const api = axios.create({
 });
 
 export const scanApi = {
-  scan: (imageData, userId) => api.post('/scan', { image: imageData, userId }),
-  confirmIdentification: (itemId) => api.post(`/scan/${itemId}/confirm`),
-  correctItemName: (itemId, name) => api.put(`/scan/${itemId}/correct`, { name }),
-  loadRecycling: (itemId) => api.post(`/recycling/${itemId}`),
-  getScanHistory: (userId) => api.get('/scan/history', { params: { userId } }),
+  scan: (imageData) => api.post('/scan', { image: imageData }),
+
+  confirmIdentification: (itemId) =>
+    api.post(`/scan/${itemId}/confirm`),
+
+  correctItemName: (itemId, name) =>
+    api.put(`/scan/${itemId}/correct`, { name }),
+
+  loadRecycling: (itemId) =>
+    api.post(`/recycling/${itemId}`),
+
+  getScanHistory: () =>
+    api.get('/scan-history'),
 };
 
 export const catalogApi = {
   getAll: () => api.get('/catalog'),
-  getById: (id) => api.get(`/catalog/${id}`),
+
+  getById: (id) =>
+    api.get(`/catalog/${id}`),
 };
 
 export const recycleApi = {
-  recycle: (request) => api.post('/recycle', request),
-  getStats: (userId) => api.get('/stats', { params: { userId } }),
-  getHistory: (userId) => api.get('/history', { params: { userId } }),
+  recycle: (request) =>
+    api.post('/recycle', request),
+
+  getStats: (userId) =>
+    api.get('/stats', { params: { userId } }),
+
+  getHistory: (userId) =>
+    api.get('/history', { params: { userId } }),
 };
 
 export const mapApi = {

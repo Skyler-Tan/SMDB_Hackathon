@@ -143,4 +143,9 @@ public class ScanController {
                         "Catalog item not found."
                 ));
     }
+
+    @GetMapping("/scan-history")
+public List<ScannedItem> getScanHistory() {
+    return scannedItemRepository.findAll();
+}
 }
