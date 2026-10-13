@@ -8,7 +8,6 @@ import com.threer.repository.ScannedItemRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -92,6 +91,11 @@ public class ScanService {
         item.setContainer(vision.container());
         item.setMaterial(vision.material());
         item.setConfidence(vision.confidence());
+        // Store userId so scan history can be fetched per user
+        String userId = (request.getUserId() == null || request.getUserId().isBlank())
+                ? "demo-user"
+                : request.getUserId();
+        item.setUserId(userId);
 
         double confidencePercent =
                 toConfidencePercent(vision.confidence());
@@ -266,9 +270,11 @@ public class ScanService {
         );
     }
 
-    /**
-     * Retrieves a previously scanned item.
-     */
+    public List<ScannedItem> scanHistory(String userId) {
+        String id = (userId == null || userId.isBlank()) ? "demo-user" : userId;
+        return scannedItemRepository.findByUserIdOrderByScannedAtDesc(id);
+    }
+
     private ScannedItem findItem(String itemId) {
 
         return scannedItemRepository.findById(itemId)
