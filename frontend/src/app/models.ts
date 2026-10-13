@@ -114,4 +114,7 @@ export interface NearbyPlace {
   openNow: string;   // 'Open now' | 'Closed' | 'Unknown'
   rating: number;    // 0 if not available
   mapsUrl: string;   // deep-link to Google Maps
+  distanceMeters?: number;
+  osmType?: string;
+  osmId?: string;
 }

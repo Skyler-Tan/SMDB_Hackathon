@@ -61,6 +61,11 @@ public class ScanService {
         item.setContainer(vision.container());
         item.setMaterial(vision.material());
         item.setConfidence(vision.confidence());
+        // Store userId so scan history can be fetched per user
+        String userId = (request.getUserId() == null || request.getUserId().isBlank())
+                ? "demo-user"
+                : request.getUserId();
+        item.setUserId(userId);
 
         double confidencePercent = toConfidencePercent(vision.confidence());
         boolean autoConfirmed = confidencePercent >= 80.0;
@@ -173,6 +178,11 @@ public class ScanService {
         System.out.println("========== RECYCLING CHECK COMPLETE ==========");
 
         return buildResponse(savedItem, decision.reason(), rewardPoints);
+    }
+
+    public List<ScannedItem> scanHistory(String userId) {
+        String id = (userId == null || userId.isBlank()) ? "demo-user" : userId;
+        return scannedItemRepository.findByUserIdOrderByScannedAtDesc(id);
     }
 
     private ScannedItem findItem(String itemId) {

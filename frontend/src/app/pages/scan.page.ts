@@ -11,6 +11,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ApiService } from '../api.service';
+import { Router } from '@angular/router';
 
 import {
   ReuseIdea,
@@ -30,10 +31,10 @@ type ConfidenceLevel = 'high' | 'medium' | 'low';
   styleUrl: './scan.page.css'
 })
 export class ScanPage implements AfterViewInit, OnDestroy {
-
   constructor(
     private readonly api: ApiService,
-    private readonly sanitizer: DomSanitizer
+    private readonly sanitizer: DomSanitizer,
+    private readonly router: Router
   ) {}
 
   @ViewChild('video')
@@ -587,6 +588,22 @@ export class ScanPage implements AfterViewInit, OnDestroy {
     }
   }
 
+  findRecyclingCentres() {
+    const scan = this.result();
+    if (!scan) return;
+
+    // Open the map filtered to the material detected by the scan.
+    // Recording the recycling action is left for the user to confirm on the map.
+    void this.router.navigate(['/map'], {
+      queryParams: {
+        material: scan.material || '',
+        itemName: scan.name || '',
+        itemId: scan.itemId || '',
+        quantity: this.quantity()
+      }
+    });
+  }
+
   recycle() {
     const scan = this.result();
 
@@ -631,6 +648,24 @@ export class ScanPage implements AfterViewInit, OnDestroy {
    * to find recycling centres nearby. Triggered automatically after
    * a successful recycle event.
    */
+  openRecyclingMap() {
+    const scan = this.result();
+    if (!scan) return;
+    this.router.navigate(['/map'], {
+      queryParams: {
+        material: scan.material,
+        itemName: scan.name,
+        quantity: this.quantity()
+      }
+    });
+  }
+
+  distanceLabel(place: NearbyPlace): string {
+    const metres = place.distanceMeters;
+    if (metres == null || !Number.isFinite(metres) || metres <= 0) return 'Distance unavailable';
+    return metres >= 1000 ? `${(metres / 1000).toFixed(1)} km away` : `${Math.round(metres)} m away`;
+  }
+
   getNearby(material: string) {
     this.nearbyPlaces.set([]);
     this.nearbyError.set('');

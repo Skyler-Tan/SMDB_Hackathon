@@ -1,7 +1,7 @@
 package com.threer.dto;
 
 /**
- * A single recycling centre returned by the Google Places API.
+ * A nearby recycling centre returned by LocationIQ.
  */
 public class NearbyPlace {
 
@@ -12,6 +12,9 @@ public class NearbyPlace {
     private String openNow;   // "Open now", "Closed", or "Unknown"
     private double rating;    // 0 if not available
     private String mapsUrl;   // deep-link to Google Maps
+    private double distanceMeters;
+    private String osmType;
+    private String osmId;
 
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
@@ -33,4 +36,13 @@ public class NearbyPlace {
 
     public String getMapsUrl() { return mapsUrl; }
     public void setMapsUrl(String mapsUrl) { this.mapsUrl = mapsUrl; }
+
+    public double getDistanceMeters() { return distanceMeters; }
+    public void setDistanceMeters(double distanceMeters) { this.distanceMeters = distanceMeters; }
+
+    public String getOsmType() { return osmType; }
+    public void setOsmType(String osmType) { this.osmType = osmType; }
+
+    public String getOsmId() { return osmId; }
+    public void setOsmId(String osmId) { this.osmId = osmId; }
 }
