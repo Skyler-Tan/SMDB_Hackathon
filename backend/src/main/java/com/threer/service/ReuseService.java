@@ -5,11 +5,11 @@ import com.threer.dto.ReuseRequest;
 import com.threer.dto.ReuseResponse;
 import com.threer.model.ScannedItem;
 import com.threer.repository.ScannedItemRepository;
-
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,26 +24,22 @@ public class ReuseService {
 
     public ReuseService(
             TavilySearchService tavilySearchService,
-            ScannedItemRepository scannedItemRepository
-    ) {
+            ScannedItemRepository scannedItemRepository) {
         this.tavilySearchService = tavilySearchService;
         this.scannedItemRepository = scannedItemRepository;
     }
 
     public ReuseResponse generateIdeas(ReuseRequest request) {
 
-        // 1. Validate the request.
         if (request == null
                 || request.getItemId() == null
                 || request.getItemId().isBlank()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "A scanned item ID is required. "
-                            + "Please scan and confirm an item first."
+                    "A scanned item ID is required. Please scan and confirm an item first."
             );
         }
 
-        // 2. Retrieve the saved scanned item.
         ScannedItem item = scannedItemRepository
                 .findById(request.getItemId().trim())
                 .orElseThrow(() -> new ResponseStatusException(
@@ -51,177 +47,189 @@ public class ReuseService {
                         "Scanned item not found. Please scan the item again."
                 ));
 
-        // 3. Require confirmation before suggesting reuse projects.
         if (!item.isIdentificationConfirmed()) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Please confirm the item's identification "
-                            + "before generating DIY ideas."
+                    "Please confirm the item's identification before generating reuse ideas."
             );
         }
 
         if (item.getName() == null || item.getName().isBlank()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "The confirmed item has no name. "
-                            + "Please correct its identification first."
+                    "The confirmed item has no name."
             );
         }
-
-        String difficulty = normalizeDifficulty(
-                request.getDifficulty()
-        );
 
         System.out.println("========== TAVILY REUSE ==========");
-        System.out.println("Confirmed item: " + item.getName());
-        System.out.println("Item ID: " + item.getId());
+        System.out.println("Item: " + item.getName());
         System.out.println("Material: " + safe(item.getMaterial()));
-        System.out.println("Difficulty: " + difficulty);
+        System.out.println("Searching all difficulties.");
 
-        // 4. Search for projects suitable for this item and difficulty.
-        List<TavilySearchService.SearchResult> results =
-                findReuseProjects(item, difficulty);
+        List<ReuseResponse.DiyIdea> ideas = new ArrayList<>();
 
-        if (results.isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "No suitable reuse projects were found. "
-                            + "Please try again later."
+        // Generate a separate set of results for each difficulty.
+        for (String difficulty : List.of("Easy", "Medium", "Hard")) {
+            System.out.println("Searching difficulty: " + difficulty);
+
+            List<TavilySearchService.SearchResult> projects =
+                    findProjects(item, difficulty);
+
+            List<TavilySearchService.SearchResult> videos =
+                    findYoutubeVideos(item, difficulty);
+
+            int added = 0;
+
+            for (TavilySearchService.SearchResult project : projects) {
+                if (added >= 3) {
+                    break;
+                }
+
+                if (project.title() == null || project.title().isBlank()
+                        || project.url() == null || project.url().isBlank()
+                        || isYoutubeUrl(project.url())) {
+                    continue;
+                }
+
+                String videoUrl = findMatchingVideoUrl(videos, project);
+
+                List<String> steps = extractSteps(project.content());
+
+                ideas.add(new ReuseResponse.DiyIdea(
+                        project.title().trim(),
+                        difficulty,
+                        safeSummary(project.content()),
+                        project.title().trim(),
+                        buildMaterials(item),
+                        List.of(),
+                        steps,
+                        videoUrl == null ? null : "YouTube video tutorial",
+                        videoUrl,
+                        project.title().trim(),
+                        project.url().trim()
+                ));
+
+                added++;
+            }
+
+            System.out.println(
+                    difficulty + " ideas added: " + added
             );
         }
 
-        // 5. Convert search results into the existing response format.
-        List<ReuseResponse.DiyIdea> ideas = new ArrayList<>();
-
-        for (TavilySearchService.SearchResult result : results) {
-
-            if (ideas.size() >= 3) {
-                break;
-            }
-
-            if (result.title() == null || result.title().isBlank()
-                    || result.url() == null || result.url().isBlank()) {
-                continue;
-            }
-
-            String title = result.title().trim();
-            String summary = createSummary(result.content(), title);
-
-            List<String> materials = buildMaterials(item);
-            List<String> tools = new ArrayList<>();
-            List<String> steps = buildSteps(result.content(), item);
-
-            ideas.add(new ReuseResponse.DiyIdea(
-                    title,
-                    difficulty,
-                    summary,
-                    title,
-                    materials,
-                    tools,
-                    steps,
-                    result.title(),
-                    result.url(),
-                    result.title(),
-                    result.url()
-            ));
-        }
+        System.out.println("Total reuse ideas: " + ideas.size());
+        System.out.println("========== REUSE COMPLETE ==========");
 
         if (ideas.isEmpty()) {
             throw new ResponseStatusException(
                     HttpStatus.SERVICE_UNAVAILABLE,
-                    "Search results did not contain usable reuse projects. "
-                            + "Please try again later."
+                    "No suitable reuse projects were found. Please try again later."
             );
         }
 
-        System.out.println("Reuse projects found: " + ideas.size());
-        System.out.println("========== REUSE COMPLETE ==========");
-
-        return new ReuseResponse(difficulty, ideas);
+        // "All" indicates that the response contains all three difficulty levels.
+        return new ReuseResponse("All", ideas);
     }
 
-    /**
-     * Search Tavily using several query variations.
-     * Results are deduplicated by URL while preserving their order.
-     */
-    private List<TavilySearchService.SearchResult> findReuseProjects(
+    private List<TavilySearchService.SearchResult> findProjects(
             ScannedItem item,
-            String difficulty
-    ) {
-        String itemName = safe(item.getName());
+            String difficulty) {
+
+        String name = safe(item.getName());
         String material = safe(item.getMaterial());
 
         List<String> queries = List.of(
-                itemName + " " + material
-                        + " creative DIY reuse projects",
-                "how to reuse " + itemName
-                        + " DIY upcycling project tutorial",
-                itemName + " reuse ideas " + difficulty
-                        + " DIY step by step"
+                name + " DIY upcycling reuse project " + difficulty
+                        + " step by step",
+                "creative ways to reuse " + name + " "
+                        + difficulty + " DIY instructions",
+                name + " " + material
+                        + " upcycle craft project tutorial"
         );
 
-        Map<String, TavilySearchService.SearchResult> uniqueResults =
+        Map<String, TavilySearchService.SearchResult> unique =
                 new LinkedHashMap<>();
 
         for (String query : queries) {
-            try {
-                System.out.println("Tavily reuse query: " + query);
-
-                List<TavilySearchService.SearchResult> results =
-                        tavilySearchService.searchGeneral(query);
-
-                if (results == null) {
-                    continue;
-                }
-
-                for (TavilySearchService.SearchResult result : results) {
-                    if (result == null
-                            || result.url() == null
-                            || result.url().isBlank()) {
-                        continue;
-                    }
-
-                    String url = result.url().trim();
-
-                    // Keep only one result for each URL.
-                    uniqueResults.putIfAbsent(url, result);
-                }
-
-            } catch (Exception e) {
-                System.err.println(
-                        "Tavily search failed for query '"
-                                + query + "': " + e.getMessage()
-                );
-            }
+            searchAndCollect(query, unique);
         }
 
-        List<TavilySearchService.SearchResult> relevant =
-                new ArrayList<>();
+        List<TavilySearchService.SearchResult> relevant = new ArrayList<>();
 
-        for (TavilySearchService.SearchResult result
-                : uniqueResults.values()) {
-
-            if (isRelevant(result, item)) {
+        for (TavilySearchService.SearchResult result : unique.values()) {
+            if (!isYoutubeUrl(result.url()) && isRelevant(result, item)) {
                 relevant.add(result);
             }
-        }
-
-        // If relevance filtering removes every result, use the available
-        // search results rather than returning nothing unnecessarily.
-        if (relevant.isEmpty()) {
-            relevant.addAll(uniqueResults.values());
         }
 
         return relevant;
     }
 
-    /**
-     * Prefer results that mention the scanned item or its material.
-     */
+    private List<TavilySearchService.SearchResult> findYoutubeVideos(
+            ScannedItem item,
+            String difficulty) {
+
+        String name = safe(item.getName());
+
+        List<String> queries = List.of(
+                "site:youtube.com/watch DIY upcycle " + name
+                        + " " + difficulty + " tutorial",
+                "site:youtu.be " + name
+                        + " reuse DIY " + difficulty + " tutorial"
+        );
+
+        Map<String, TavilySearchService.SearchResult> unique =
+                new LinkedHashMap<>();
+
+        for (String query : queries) {
+            searchAndCollect(query, unique);
+        }
+
+        List<TavilySearchService.SearchResult> videos = new ArrayList<>();
+
+        for (TavilySearchService.SearchResult result : unique.values()) {
+            if (isYoutubeUrl(result.url())) {
+                videos.add(result);
+            }
+        }
+
+        return videos;
+    }
+
+    private void searchAndCollect(
+            String query,
+            Map<String, TavilySearchService.SearchResult> results) {
+
+        try {
+            System.out.println("Tavily query: " + query);
+
+            List<TavilySearchService.SearchResult> found =
+                    tavilySearchService.searchGeneral(query);
+
+            if (found == null) {
+                return;
+            }
+
+            for (TavilySearchService.SearchResult result : found) {
+                if (result == null || result.url() == null
+                        || result.url().isBlank()) {
+                    continue;
+                }
+
+                results.putIfAbsent(result.url().trim(), result);
+            }
+        } catch (Exception e) {
+            System.err.println(
+                    "Tavily query failed: " + query
+                            + " | " + e.getMessage()
+            );
+        }
+    }
+
     private boolean isRelevant(
             TavilySearchService.SearchResult result,
-            ScannedItem item
-    ) {
+            ScannedItem item) {
+
         String text = (
                 safe(result.title()) + " " + safe(result.content())
         ).toLowerCase(Locale.ROOT);
@@ -232,126 +240,141 @@ public class ReuseService {
         String material = safe(item.getMaterial())
                 .toLowerCase(Locale.ROOT);
 
-        if (!itemName.equals("unknown")
-                && text.contains(itemName)) {
+        // Prefer results mentioning the actual item.
+        String[] words = itemName.split("[^a-z0-9]+");
+        int matchedWords = 0;
+
+        for (String word : words) {
+            if (word.length() >= 3 && text.contains(word)) {
+                matchedWords++;
+            }
+        }
+
+        if (matchedWords > 0) {
             return true;
         }
 
-        return !material.equals("unknown")
+        // Material alone is a weaker match, so require a DIY/reuse context.
+        boolean materialMatches = !material.equals("unknown")
                 && text.contains(material);
+
+        boolean diyContext = text.contains("reuse")
+                || text.contains("upcycl")
+                || text.contains("diy")
+                || text.contains("craft")
+                || text.contains("project");
+
+        return materialMatches && diyContext;
     }
 
-    /**
-     * Build a short summary from Tavily's search-result description.
-     */
-    private String createSummary(String content, String title) {
-        if (content == null || content.isBlank()) {
-            return "Explore this reuse project using the linked tutorial.";
+    private String findMatchingVideoUrl(
+            List<TavilySearchService.SearchResult> videos,
+            TavilySearchService.SearchResult project) {
+
+        if (videos == null || videos.isEmpty()) {
+            return null;
         }
 
-        String summary = content.trim()
-                .replaceAll("\\s+", " ");
+        // Prefer a video whose title shares words with the project title.
+        String projectTitle = safe(project.title())
+                .toLowerCase(Locale.ROOT);
 
-        // Keep the summary short enough for a project card.
-        if (summary.length() > 240) {
-            summary = summary.substring(0, 237).trim() + "...";
-        }
+        for (TavilySearchService.SearchResult video : videos) {
+            String videoTitle = safe(video.title())
+                    .toLowerCase(Locale.ROOT);
 
-        return summary.isBlank()
-                ? "Explore this reuse project: " + title
-                : summary;
-    }
-
-    /**
-     * Keep the material list conservative because search snippets
-     * do not always provide a complete materials list.
-     */
-    private List<String> buildMaterials(ScannedItem item) {
-        List<String> materials = new ArrayList<>();
-
-        String itemName = safe(item.getName());
-        String material = safe(item.getMaterial());
-
-        materials.add(itemName);
-
-        if (!material.equals("unknown")
-                && !material.equalsIgnoreCase(itemName)) {
-            materials.add(material);
-        }
-
-        return materials;
-    }
-
-    /**
-     * Search snippets may not contain complete instructions.
-     * Extract useful sentences when available and add safe preparation
-     * steps without inventing project-specific construction details.
-     */
-    private List<String> buildSteps(
-            String content,
-            ScannedItem item
-    ) {
-        List<String> steps = new ArrayList<>();
-
-        String name = safe(item.getName());
-
-        steps.add("Clean the " + name + " and let it dry completely.");
-
-        if (content != null && !content.isBlank()) {
-            String normalized = content.trim()
-                    .replaceAll("\\s+", " ");
-
-            String[] sentences = normalized.split(
-                    "(?<=[.!?])\\s+"
-            );
-
-            for (String sentence : sentences) {
-                String step = sentence.trim();
-
-                if (step.length() < 20 || step.length() > 220) {
-                    continue;
-                }
-
-                if (steps.stream().noneMatch(
-                        existing -> existing.equalsIgnoreCase(step))) {
-                    steps.add(step);
-                }
-
-                if (steps.size() >= 3) {
-                    break;
+            for (String word : projectTitle.split("[^a-z0-9]+")) {
+                if (word.length() >= 4 && videoTitle.contains(word)) {
+                    return video.url();
                 }
             }
         }
 
-        if (steps.size() < 2) {
-            steps.add(
-                    "Open the linked tutorial and check the materials "
-                            + "and instructions for this project."
-            );
+        // The search was specifically for this item and difficulty.
+        return videos.get(0).url();
+    }
+
+    private boolean isYoutubeUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return false;
         }
 
-        if (steps.size() < 3) {
-            steps.add(
-                    "Follow the tutorial carefully and check that the "
-                            + "finished item is clean, stable and safe to use."
-            );
+        try {
+            String host = URI.create(url.trim())
+                    .getHost();
+
+            if (host == null) {
+                return false;
+            }
+
+            host = host.toLowerCase(Locale.ROOT);
+
+            return host.equals("youtube.com")
+                    || host.endsWith(".youtube.com")
+                    || host.equals("youtu.be")
+                    || host.endsWith(".youtu.be");
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private List<String> extractSteps(String content) {
+        List<String> steps = new ArrayList<>();
+
+        if (content == null || content.isBlank()) {
+            return steps;
+        }
+
+        String normalized = content.trim()
+                .replaceAll("\\s+", " ");
+
+        // Keep every usable sentence supplied in the search result.
+        String[] sentences = normalized.split("(?<=[.!?])\\s+");
+
+        for (String sentence : sentences) {
+            String step = sentence.trim();
+
+            if (step.length() < 15) {
+                continue;
+            }
+
+            if (steps.stream().noneMatch(
+                    existing -> existing.equalsIgnoreCase(step))) {
+                steps.add(step);
+            }
         }
 
         return steps;
     }
 
-    private String normalizeDifficulty(String difficulty) {
-        if (difficulty != null) {
-            if (difficulty.equalsIgnoreCase("medium")) {
-                return "Medium";
-            }
-
-            if (difficulty.equalsIgnoreCase("hard")) {
-                return "Hard";
-            }
+    private String safeSummary(String content) {
+        if (content == null || content.isBlank()) {
+            return "Open the source link for project information and instructions.";
         }
 
-        return "Easy";
+        String summary = content.trim().replaceAll("\\s+", " ");
+
+        if (summary.length() > 300) {
+            return summary.substring(0, 297).trim() + "...";
+        }
+
+        return summary;
+    }
+
+    private List<String> buildMaterials(ScannedItem item) {
+        List<String> materials = new ArrayList<>();
+
+        String name = safe(item.getName());
+        String material = safe(item.getMaterial());
+
+        materials.add(name);
+
+        if (!material.equals("unknown")
+                && !material.equalsIgnoreCase(name)) {
+            materials.add(material);
+        }
+
+        return materials;
     }
 
     private String safe(String value) {

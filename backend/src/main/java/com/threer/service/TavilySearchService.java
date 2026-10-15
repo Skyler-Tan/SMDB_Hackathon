@@ -1,4 +1,3 @@
-
 package com.threer.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -13,9 +12,11 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class TavilySearchService {
@@ -23,23 +24,35 @@ public class TavilySearchService {
     private static final String API_URL =
             "https://api.tavily.com/search";
 
+    // Minimum number of relevant results needed before
+    // a region is considered useful.
+    private static final int MIN_RELEVANT_RESULTS = 2;
+
+    private static final int MAX_FINAL_RESULTS = 10;
+
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
 
-    @Value("${tavily.api-key}")
+    @Value("${tavily.api-key:}")
     private String apiKey;
 
     public TavilySearchService(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
 
         this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5))
+                .connectTimeout(Duration.ofSeconds(10))
                 .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
     }
 
     /**
-     * Search Malaysia first, then international guidance if needed.
+     * Search order:
+     * 1. Malaysia
+     * 2. ASEAN
+     * 3. International
+     *
+     * Search results are filtered for relevance before deciding
+     * whether to continue to the next region.
      */
     public List<SearchResult> searchRecyclingInformation(
             String itemName,
@@ -47,60 +60,350 @@ public class TavilySearchService {
             String material) {
 
         String item = clean(itemName);
-        String brandName = clean(brand);
-        String mat = clean(material);
+        String brandName = normalizeUnknown(clean(brand));
+        String mat = normalizeUnknown(clean(material));
 
-        if (item.isBlank() && mat.isBlank()) {
+        System.out.println(
+                "\n========== RECYCLING RESEARCH =========="
+        );
+        System.out.println("Item: " + item);
+        System.out.println("Brand: " + displayUnknown(brandName));
+        System.out.println("Material: " + displayUnknown(mat));
+
+        if (isUnknown(item)) {
+            System.err.println(
+                    "Cannot search: item name is missing or unknown."
+            );
             return List.of();
         }
 
-        String subject = join(item, mat);
+        if (apiKey == null || apiKey.isBlank()) {
+            System.err.println("Tavily API key is missing.");
+            return List.of();
+        }
 
-        List<String> queries = new ArrayList<>();
+        Map<String, SearchResult> relevantResults =
+                new LinkedHashMap<>();
 
-        queries.add(
-                subject + " recycling acceptance Malaysia"
+        // =====================================================
+        // STAGE 1: MALAYSIA
+        // =====================================================
+
+        System.out.println("\n--- STAGE 1: MALAYSIA ---");
+
+        List<String> malaysiaQueries =
+                buildMalaysiaQueries(item, brandName, mat);
+
+        searchStage(
+                "MALAYSIA",
+                item,
+                malaysiaQueries,
+                relevantResults
         );
 
-        queries.add(
-                subject + " material recyclability recycling guidelines"
+        int malaysiaCount = relevantResults.size();
+
+        System.out.println(
+                "Relevant Malaysian results: " + malaysiaCount
         );
 
-        if (!brandName.isBlank()) {
-            queries.add(
-                    "\"" + brandName + "\" " + item
-                            + " packaging material recycling"
+        if (malaysiaCount >= MIN_RELEVANT_RESULTS) {
+            System.out.println(
+                    "Relevant Malaysian evidence found. "
+                            + "Skipping other regions."
+            );
+
+            return finishResults(relevantResults);
+        }
+
+        // =====================================================
+        // STAGE 2: ASEAN
+        // =====================================================
+
+        System.out.println(
+                "\nInsufficient relevant Malaysian results. "
+                        + "Trying ASEAN sources."
+        );
+
+        List<String> aseanQueries = new ArrayList<>();
+
+        aseanQueries.add(
+                "\"" + item + "\" recycling disposal ASEAN"
+        );
+
+        aseanQueries.add(
+                item + " e-waste recycling Singapore "
+                        + "Thailand Indonesia Philippines"
+        );
+
+        if (!isUnknown(mat)) {
+            aseanQueries.add(
+                    item + " " + mat
+                            + " recycling Southeast Asia"
             );
         }
 
-        Map<String, SearchResult> collected =
-                new LinkedHashMap<>();
+        searchStage(
+                "ASEAN",
+                item,
+                aseanQueries,
+                relevantResults
+        );
+
+        if (relevantResults.size() >= MIN_RELEVANT_RESULTS) {
+            System.out.println(
+                    "Sufficient relevant results collected. "
+                            + "Skipping international search."
+            );
+
+            return finishResults(relevantResults);
+        }
+
+        // =====================================================
+        // STAGE 3: INTERNATIONAL
+        // =====================================================
+
+        System.out.println(
+                "\nInsufficient relevant results. "
+                        + "Trying international sources."
+        );
+
+        List<String> internationalQueries =
+                new ArrayList<>();
+
+        internationalQueries.add(
+                "\"" + item + "\" recycling disposal guidelines"
+        );
+
+        internationalQueries.add(
+                item + " recycling official environmental agency"
+        );
+
+        if (!isUnknown(mat)) {
+            internationalQueries.add(
+                    item + " " + mat
+                            + " recyclability disposal"
+            );
+        }
+
+        searchStage(
+                "INTERNATIONAL",
+                item,
+                internationalQueries,
+                relevantResults
+        );
+
+        System.out.println(
+                "International search completed."
+        );
+
+        if (relevantResults.isEmpty()) {
+            System.err.println(
+                    "No relevant recycling evidence found. "
+                            + "The item must remain UNVERIFIED."
+            );
+        }
+
+        return finishResults(relevantResults);
+    }
+
+    /**
+     * Builds targeted Malaysian searches.
+     */
+    private List<String> buildMalaysiaQueries(
+            String item,
+            String brand,
+            String material) {
+
+        List<String> queries = new ArrayList<>();
+
+        String lowerItem = item.toLowerCase(Locale.ROOT);
+
+        boolean electronic =
+                containsAny(
+                        lowerItem,
+                        "speaker",
+                        "phone",
+                        "mobile",
+                        "laptop",
+                        "computer",
+                        "camera",
+                        "headphone",
+                        "earphone",
+                        "keyboard",
+                        "mouse",
+                        "charger",
+                        "cable",
+                        "battery",
+                        "electronic",
+                        "electrical",
+                        "monitor",
+                        "television",
+                        "tablet",
+                        "power bank",
+                        "printer",
+                        "router"
+                );
+
+        if (electronic) {
+            queries.add(
+                    "\"" + item + "\" e-waste recycling Malaysia"
+            );
+
+            queries.add(
+                    "Malaysia official electronic waste "
+                            + "collection disposal guidelines"
+            );
+
+            queries.add(
+                    item + " battery disposal recycling Malaysia"
+            );
+        } else {
+            queries.add(
+                    "\"" + item + "\" recycling Malaysia"
+            );
+
+            queries.add(
+                    item + " recycling disposal Malaysia "
+                            + "government guidelines"
+            );
+        }
+
+        if (!isUnknown(brand)) {
+            queries.add(
+                    "\"" + brand + "\" \"" + item
+                            + "\" recycling Malaysia"
+            );
+        }
+
+        if (!isUnknown(material)) {
+            queries.add(
+                    item + " " + material
+                            + " recycling Malaysia"
+            );
+        }
+
+        // Remove duplicate queries while preserving their order.
+        return new ArrayList<>(new LinkedHashSet<>(queries));
+    }
+
+    /**
+     * Searches a region and retains only results that appear relevant
+     * to the item and recycling/disposal subject.
+     */
+    private void searchStage(
+            String region,
+            String item,
+            List<String> queries,
+            Map<String, SearchResult> collected) {
+
+        System.out.println("Searching region: " + region);
 
         for (String query : queries) {
             List<SearchResult> results = search(query);
 
+            int relevantThisQuery = 0;
+
             for (SearchResult result : results) {
-                if (result == null) {
+                if (!isRelevant(item, result)) {
+                    System.out.println(
+                            "Rejected irrelevant result: "
+                                    + result.title()
+                    );
                     continue;
                 }
 
-                String key = result.url().isBlank()
-                        ? result.title() + result.content()
-                        : result.url().toLowerCase(Locale.ROOT);
+                String key = !result.url().isBlank()
+                        ? result.url().toLowerCase(Locale.ROOT)
+                        : result.title().toLowerCase(Locale.ROOT);
 
-                collected.putIfAbsent(key, result);
+                if (!collected.containsKey(key)) {
+                    collected.put(key, result);
+                    relevantThisQuery++;
+                }
             }
 
-            // Stop early if enough evidence has been collected.
-            if (collected.size() >= 5) {
-                break;
-            }
+            System.out.println(
+                    region + " relevant new results from query: "
+                            + relevantThisQuery
+            );
+
+            System.out.println(
+                    region + " relevant unique results so far: "
+                            + collected.size()
+            );
         }
 
-        return collected.values()
-                .stream()
-                .limit(5)
-                .toList();
+        System.out.println(region + " stage complete.");
+    }
+
+    /**
+     * Basic relevance filter.
+     *
+     * A result must mention the item or a meaningful component of its
+     * name, and contain recycling, disposal, collection, or e-waste
+     * context. Generic recycling pages are not automatically accepted.
+     */
+    private boolean isRelevant(
+            String item,
+            SearchResult result) {
+
+        String title = safeText(result.title());
+        String content = safeText(result.content());
+        String url = safeText(result.url());
+
+        String combined = (
+                title + " " + content + " " + url
+        ).toLowerCase(Locale.ROOT);
+
+        String normalizedItem =
+                item.toLowerCase(Locale.ROOT).trim();
+
+        boolean mentionsItem =
+                combined.contains(normalizedItem);
+
+        // Allow multiword items to match by their important terms.
+        if (!mentionsItem) {
+            String[] words = normalizedItem.split("\\s+");
+
+            int matchedWords = 0;
+            int meaningfulWords = 0;
+
+            for (String word : words) {
+                if (word.length() < 3) {
+                    continue;
+                }
+
+                meaningfulWords++;
+
+                if (combined.contains(word)) {
+                    matchedWords++;
+                }
+            }
+
+            mentionsItem = meaningfulWords > 0
+                    && matchedWords >= Math.min(2, meaningfulWords);
+        }
+
+        boolean mentionsRecycling =
+                containsAny(
+                        combined,
+                        "recycl",
+                        "e-waste",
+                        "electronic waste",
+                        "disposal",
+                        "dispose",
+                        "collection point",
+                        "waste management",
+                        "recovery",
+                        "take-back",
+                        "take back"
+                );
+
+        boolean genericOnly =
+                combined.contains("recycling") && !mentionsItem;
+
+        return mentionsItem && mentionsRecycling && !genericOnly;
     }
 
     /**
@@ -112,12 +415,9 @@ public class TavilySearchService {
 
     private List<SearchResult> search(String query) {
 
-        if (apiKey == null || apiKey.isBlank()) {
-            System.err.println("Tavily API key is missing.");
-            return List.of();
-        }
-
         try {
+            System.out.println("Tavily query: " + query);
+
             Map<String, Object> body = Map.of(
                     "query", query,
                     "search_depth", "basic",
@@ -126,14 +426,23 @@ public class TavilySearchService {
                     "include_answer", false
             );
 
-            String json = objectMapper.writeValueAsString(body);
+            String json =
+                    objectMapper.writeValueAsString(body);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(API_URL))
-                    .timeout(Duration.ofSeconds(8))
-                    .header("Authorization", "Bearer " + apiKey)
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(json))
+                    .timeout(Duration.ofSeconds(20))
+                    .header(
+                            "Authorization",
+                            "Bearer " + apiKey
+                    )
+                    .header(
+                            "Content-Type",
+                            "application/json"
+                    )
+                    .POST(
+                            HttpRequest.BodyPublishers.ofString(json)
+                    )
                     .build();
 
             HttpResponse<String> response = httpClient.send(
@@ -141,14 +450,16 @@ public class TavilySearchService {
                     HttpResponse.BodyHandlers.ofString()
             );
 
-            if (response.statusCode() < 200
-                    || response.statusCode() >= 300) {
+            int status = response.statusCode();
 
+            System.out.println(
+                    "Tavily HTTP status: " + status
+            );
+
+            if (status < 200 || status >= 300) {
                 System.err.println(
-                        "Tavily returned HTTP "
-                                + response.statusCode()
+                        "Tavily error response: " + response.body()
                 );
-
                 return List.of();
             }
 
@@ -171,47 +482,104 @@ public class TavilySearchService {
                             node.path("content").asText("");
 
                     if (!title.isBlank() || !content.isBlank()) {
-                        results.add(new SearchResult(
-                                title,
-                                url,
-                                content
-                        ));
+                        results.add(
+                                new SearchResult(title, url, content)
+                        );
                     }
                 }
             }
 
             System.out.println(
-                    "Tavily returned " + results.size()
-                            + " results for: " + query
+                    "Raw results returned: " + results.size()
             );
 
             return results;
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            System.err.println("Tavily search interrupted.");
+
+            System.err.println(
+                    "Tavily request interrupted."
+            );
+
             return List.of();
 
         } catch (Exception e) {
             System.err.println(
                     "Tavily search failed: " + e.getMessage()
             );
+
+            e.printStackTrace();
             return List.of();
         }
     }
 
-    private String join(String first, String second) {
-        if (first.isBlank()) return second;
-        if (second.isBlank()) return first;
-        return first + " " + second;
+    private boolean containsAny(
+            String text,
+            String... keywords) {
+
+        for (String keyword : keywords) {
+            if (text.contains(keyword)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean isUnknown(String value) {
+        if (value == null || value.isBlank()) {
+            return true;
+        }
+
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+
+        return normalized.equals("unknown")
+                || normalized.equals("n/a")
+                || normalized.equals("none")
+                || normalized.equals("null")
+                || normalized.equals("not known");
+    }
+
+    private String normalizeUnknown(String value) {
+        return isUnknown(value) ? "" : value;
+    }
+
+    private String displayUnknown(String value) {
+        return isUnknown(value) ? "unknown" : value;
     }
 
     private String clean(String value) {
         return value == null
                 ? ""
                 : value.replaceAll("[\\r\\n\\t]+", " ")
-                        .replaceAll("\\s+", " ")
-                        .trim();
+                       .replaceAll("\\s+", " ")
+                       .trim();
+    }
+
+    private String safeText(String value) {
+        return value == null
+                ? ""
+                : value.toLowerCase(Locale.ROOT);
+    }
+
+    private List<SearchResult> finishResults(
+            Map<String, SearchResult> collected) {
+
+        List<SearchResult> results = collected.values()
+                .stream()
+                .limit(MAX_FINAL_RESULTS)
+                .toList();
+
+        System.out.println(
+                "\nTotal relevant unique results: " + results.size()
+        );
+
+        System.out.println(
+                "========== RESEARCH COMPLETE ==========\n"
+        );
+
+        return results;
     }
 
     public record SearchResult(

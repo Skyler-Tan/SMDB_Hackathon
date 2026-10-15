@@ -1,4 +1,3 @@
-
 package com.threer.web;
 
 import com.threer.dto.ScanRequest;
@@ -14,7 +13,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @CrossOrigin(origins = "http://localhost:4200")
@@ -35,13 +33,16 @@ public class ScanController {
         this.scannedItemRepository = scannedItemRepository;
     }
 
+    // Scan an image and identify the item.
     @PostMapping("/scan")
     public ScanResponse scan(@RequestBody ScanRequest request) {
+
         System.out.println("========== /api/scan RECEIVED ==========");
 
         if (request == null
                 || request.getImage() == null
                 || request.getImage().isBlank()) {
+
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Image is required."
@@ -61,31 +62,55 @@ public class ScanController {
         return response;
     }
 
+    // Get scan history for a specific user, if supplied.
     @GetMapping("/scan/history")
-    public List<ScannedItem> scanHistory(@RequestParam(required = false) String userId) {
+    public List<ScannedItem> scanHistory(
+            @RequestParam(required = false) String userId
+    ) {
         return scanService.scanHistory(userId);
     }
 
+    // Confirm the AI-identified item.
+    // ScanService is responsible for confirming the identification.
     @PostMapping("/scan/{itemId}/confirm")
-    public ScanResponse confirmIdentification(@PathVariable String itemId) {
-        return scanService.confirmIdentification(itemId);
+    public ScanResponse confirmIdentification(
+            @PathVariable String itemId
+    ) {
+        System.out.println(
+                "========== ITEM IDENTIFICATION CONFIRMATION =========="
+        );
+
+        ScanResponse response =
+                scanService.confirmIdentification(itemId);
+
+        System.out.println(
+                "========== ITEM IDENTIFICATION CONFIRMED =========="
+        );
+
+        return response;
     }
 
+    // Correct an item's name and rerun recycling research.
     @PutMapping("/scan/{itemId}/correct")
-    public Map<String, Object> correctItemName(
+    public ScanResponse correctItemName(
             @PathVariable String itemId,
-            @RequestBody Map<String, String> request
+            @RequestBody CorrectionRequest request
     ) {
-        String correctedName = request == null ? null : request.get("name");
+        System.out.println(
+                "========== ITEM CORRECTION RECEIVED =========="
+        );
 
-        if (correctedName == null || correctedName.isBlank()) {
+        if (request == null
+                || request.name() == null
+                || request.name().isBlank()) {
+
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
                     "Please enter the correct item name."
             );
         }
 
-        correctedName = correctedName.trim();
+        String correctedName = request.name().trim();
 
         if (correctedName.length() > 150) {
             throw new ResponseStatusException(
@@ -94,47 +119,94 @@ public class ScanController {
             );
         }
 
+        String correctedMaterial = request.material();
+
+        if (correctedMaterial != null) {
+            correctedMaterial = correctedMaterial.trim();
+
+            if (correctedMaterial.length() > 100) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Material must be 100 characters or fewer."
+                );
+            }
+        }
+
         ScannedItem item = scannedItemRepository.findById(itemId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "Scanned item not found."
                 ));
 
+        // Save the corrected item identification.
         item.setName(correctedName);
         item.setIdentificationConfirmed(true);
 
-        // A correction invalidates any previous recycling decision.
+        // Clear the old material prediction unless a new one is supplied.
+        if (correctedMaterial != null
+                && !correctedMaterial.isBlank()) {
+            item.setMaterial(correctedMaterial);
+        } else {
+            item.setMaterial("");
+        }
+
+        // Reset the old recycling decision before researching again.
         item.setRecyclable(false);
         item.setRecyclingStatus("UNVERIFIED");
         item.setBin("unknown");
         item.setDescription(
                 "Item identification corrected by the user. "
-                        + "Recycling information must be checked again."
+                        + "Checking recycling information again."
         );
 
         scannedItemRepository.save(item);
 
+        System.out.println("Corrected item name: " + correctedName);
         System.out.println(
-                "User corrected and confirmed item name: " + correctedName
+                "Corrected material: "
+                        + (correctedMaterial == null
+                        || correctedMaterial.isBlank()
+                        ? "Not provided"
+                        : correctedMaterial)
         );
 
-        return Map.of(
-                "success", true,
-                "name", correctedName,
-                "identificationConfirmed", true
+        // Rerun recycling research using the corrected item.
+        System.out.println(
+                "========== RESTARTING RECYCLING LOOKUP =========="
         );
+
+        ScanResponse response = scanService.loadRecycling(itemId);
+
+        System.out.println(
+                "========== RECYCLING LOOKUP COMPLETED =========="
+        );
+
+        if (response == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Recycling research did not return a result."
+            );
+        }
+
+        // Return the complete updated result to the frontend.
+        return response;
     }
 
+    // Manually check recycling information again.
     @PostMapping("/recycling/{itemId}")
-    public ScanResponse recycling(@PathVariable String itemId) {
+    public ScanResponse recycling(
+            @PathVariable String itemId
+    ) {
         return scanService.loadRecycling(itemId);
     }
 
+    // Get the complete recycling catalog.
     @GetMapping("/catalog")
     public List<CatalogItem> catalog() {
         return catalogItemRepository.findAll();
     }
 
+    // Get one catalog item.
     @GetMapping("/catalog/{id}")
     public CatalogItem item(@PathVariable String id) {
         return catalogItemRepository.findById(id)
@@ -144,8 +216,16 @@ public class ScanController {
                 ));
     }
 
+    // Retrieve all scan history.
     @GetMapping("/scan-history")
-public List<ScannedItem> getScanHistory() {
-    return scannedItemRepository.findAll();
-}
+    public List<ScannedItem> getScanHistory() {
+        return scannedItemRepository.findAll();
+    }
+
+    // Request body for correcting an item's name and optional material.
+    public record CorrectionRequest(
+            String name,
+            String material
+    ) {
+    }
 }

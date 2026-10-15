@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from 'react';
 import {
   Check,
@@ -6,6 +5,10 @@ import {
   RefreshCw,
   Recycle,
   AlertCircle,
+  Loader2,
+  Pencil,
+  ArrowRight,
+  Package,
 } from 'lucide-react';
 import { scanApi } from '../api/api';
 
@@ -18,343 +21,524 @@ export default function ScanResult({
 }) {
   const [item, setItem] = useState(result || {});
   const [busy, setBusy] = useState(false);
-  const [showCorrectInput, setShowCorrectInput] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [showEditForm, setShowEditForm] = useState(false);
   const [correctedName, setCorrectedName] = useState('');
-  const [correctError, setCorrectError] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
-  // Keep the displayed result synchronized with the parent.
+  // Items already confirmed do not need another confirmation.
+  const [reviewed, setReviewed] = useState(
+    Boolean(result?.identificationConfirmed)
+  );
+
+  const resultId = result?.itemId ?? result?.id ?? null;
+  const itemId = item?.itemId ?? item?.id ?? null;
+
+  // Reset the component when a different item is selected.
   useEffect(() => {
     setItem(result || {});
+    setBusy(false);
+    setChecking(false);
+    setShowEditForm(false);
+    setCorrectedName(result?.name || result?.itemName || '');
+    setErrorMessage('');
+    setReviewed(Boolean(result?.identificationConfirmed));
+  }, [resultId]);
+
+  // Keep item information in sync when the parent updates the result.
+  useEffect(() => {
+    if (!result) return;
+
+    setItem((previous) => ({
+      ...previous,
+      ...result,
+    }));
+
+    if (result.identificationConfirmed === true) {
+      setReviewed(true);
+    }
   }, [result]);
 
-  if (!item) {
-    return (
-      <div className="max-w-md mx-auto p-6 bg-white rounded-lg shadow-lg">
-        <p className="text-gray-600">No scan result available.</p>
-      </div>
-    );
-  }
+  const cleanNotes = (text) => {
+    if (typeof text !== 'string') return '';
 
-  const {
-    itemId,
-    name,
-    brand,
-    size,
-    material,
-    bin,
-    notes,
-    confidence,
-  } = item;
-
-  const confirmed = item.identificationConfirmed === true;
-
-  const recyclingStatus = String(
-    item.recyclingStatus ??
-      (item.recyclable === true
-        ? 'RECYCLABLE'
-        : 'UNVERIFIED')
-  ).toUpperCase();
-
-  const isRecyclable = recyclingStatus === 'RECYCLABLE';
-  const isNotRecyclable = recyclingStatus === 'NOT_RECYCLABLE';
-  const isUnverified =
-    !isRecyclable && !isNotRecyclable;
-
-  const handleConfirm = async () => {
-    if (!itemId || busy) return;
-
-    setBusy(true);
-
-    try {
-      const response = await scanApi.confirmIdentification(itemId);
-      const updatedItem = response.data || {};
-
-      setItem((previous) => ({
-        ...previous,
-        ...updatedItem,
-        identificationConfirmed: true,
-      }));
-
-      onConfirm?.({
-        ...item,
-        ...updatedItem,
-        identificationConfirmed: true,
-      });
-    } catch (error) {
-      console.error('Failed to confirm identification:', error);
-      alert('Failed to confirm the item. Please try again.');
-    } finally {
-      setBusy(false);
-    }
+    return text
+      .replace(/\s*Sources:\s*[\s\S]*$/i, '')
+      .trim();
   };
 
-  const handleCorrectSubmit = async () => {
-    const trimmedName = correctedName.trim();
+  const status = String(
+    item?.recyclingStatus ||
+      (item?.recyclable === true
+        ? 'RECYCLABLE'
+        : item?.recyclable === false
+          ? 'NOT_RECYCLABLE'
+          : 'UNVERIFIED')
+  ).toUpperCase();
 
-    if (!trimmedName || busy) return;
+  const isRecyclable =
+    status === 'RECYCLABLE' ||
+    status === 'RECYCLABLE_YES';
 
+  const isNotRecyclable =
+    status === 'NOT_RECYCLABLE' ||
+    status === 'NON_RECYCLABLE' ||
+    status === 'RECYCLABLE_NO';
+
+  const isUnverified = !isRecyclable && !isNotRecyclable;
+
+  const notes = cleanNotes(
+    item?.notes ||
+      item?.description ||
+      item?.recyclingNotes ||
+      ''
+  );
+
+  // Confirm the detected item without changing its name.
+  const handleConfirm = async () => {
     if (!itemId) {
-      setCorrectError('Missing item ID. Please scan the item again.');
+      setErrorMessage(
+        'Item ID is missing. Please scan the item again.'
+      );
       return;
     }
 
     setBusy(true);
-    setCorrectError('');
+    setErrorMessage('');
 
     try {
-      const response = await scanApi.correctItemName(
-        itemId,
-        trimmedName
-      );
+      const response = await scanApi.confirmIdentification(itemId);
+      const updatedItem = response?.data;
 
-      const updatedItem = response.data || {};
+      const nextItem = {
+        ...item,
+        ...(updatedItem || {}),
+        identificationConfirmed: true,
+      };
 
-      setItem((previous) => ({
-        ...previous,
-        ...updatedItem,
-        name: updatedItem.name || trimmedName,
-      }));
+      setItem(nextItem);
+      setReviewed(true);
+      setShowEditForm(false);
 
-      setShowCorrectInput(false);
-      setCorrectedName('');
-
-      onCorrect?.(trimmedName, updatedItem);
+      if (onConfirm) {
+        onConfirm(nextItem);
+      }
     } catch (error) {
-      console.error('Failed to correct item name:', error);
-      setCorrectError(
-        error.response?.data?.message ||
-          'Failed to update the item. Please try again.'
+      console.error('Failed to confirm identification:', error);
+
+      setErrorMessage(
+        error?.response?.data?.message ||
+          'Could not confirm this item. Please try again.'
       );
     } finally {
       setBusy(false);
     }
   };
 
-  const confidenceValue =
-    confidence == null
-      ? null
-      : confidence <= 1
-        ? Math.round(confidence * 100)
-        : Math.round(confidence);
+  // Save the corrected item name and confirm the identification.
+  const handleEditSubmit = async (event) => {
+    event.preventDefault();
+
+    const name = correctedName.trim();
+
+    if (!name) {
+      setErrorMessage('Please enter the correct item name.');
+      return;
+    }
+
+    if (!itemId) {
+      setErrorMessage(
+        'Item ID is missing. Please scan the item again.'
+      );
+      return;
+    }
+
+    setBusy(true);
+    setErrorMessage('');
+
+    try {
+      const response = await scanApi.correctItemName(itemId, name);
+      const updatedItem = response?.data;
+
+      const nextItem = {
+        ...item,
+        ...(updatedItem || {}),
+        name:
+          updatedItem?.name ||
+          updatedItem?.itemName ||
+          name,
+        identificationConfirmed: true,
+      };
+
+      setItem(nextItem);
+      setReviewed(true);
+      setShowEditForm(false);
+      setCorrectedName('');
+
+      if (onCorrect) {
+        onCorrect(name);
+      }
+
+      if (onConfirm) {
+        onConfirm(nextItem);
+      }
+    } catch (error) {
+      console.error('Failed to correct item:', error);
+
+      setErrorMessage(
+        error?.response?.data?.message ||
+          'Could not update this item. Please try again.'
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Retry loading recycling information for an existing scanned item.
+  const handleRetry = async () => {
+    if (!itemId) {
+      setErrorMessage(
+        'Item ID is missing. Recycling information cannot be checked.'
+      );
+      return;
+    }
+
+    setChecking(true);
+    setErrorMessage('');
+
+    try {
+      const response = await scanApi.loadRecycling(itemId);
+      const updatedItem = response?.data;
+
+      if (updatedItem) {
+        const nextItem = {
+          ...item,
+          ...updatedItem,
+          identificationConfirmed: true,
+        };
+
+        setItem(nextItem);
+
+        if (onConfirm) {
+          onConfirm(nextItem);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load recycling information:', error);
+
+      setErrorMessage(
+        error?.response?.data?.message ||
+          'Could not retrieve recycling information. Please try again.'
+      );
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const handleRecycleClick = () => {
+    if (onRecycle) {
+      onRecycle();
+    }
+  };
+
+  const handleReuseClick = () => {
+    if (onReuse) {
+      onReuse(item);
+    }
+  };
+
+  if (!result) {
+    return null;
+  }
 
   return (
-    <div className="max-w-md mx-auto p-6 bg-white rounded-xl shadow-lg">
-      <h3 className="text-xl font-bold mb-5 text-gray-900">
-        Scan Result
-      </h3>
+    <div className="mx-auto w-full max-w-2xl space-y-5">
+      {/* Item details */}
+      <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-green-100">
+            <Package className="h-6 w-6 text-green-700" />
+          </div>
 
-      <div className="space-y-5">
-        {/* Identified item */}
-        <section>
-          <p className="text-sm text-gray-500">
-            Identified as:
-          </p>
+          <div className="min-w-0 flex-1">
+            <h2 className="text-xl font-bold text-gray-900">
+              {item.name || item.itemName || 'Unknown item'}
+            </h2>
 
-          <h4 className="text-2xl font-semibold text-gray-900 mt-1">
-            {name || 'Unknown item'}
-          </h4>
+            {item.brand && (
+              <p className="mt-1 text-sm text-gray-600">
+                Brand: {item.brand}
+              </p>
+            )}
 
-          {brand && (
-            <p className="text-sm text-gray-600 mt-1">
-              Brand: {brand}
-            </p>
-          )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {item.material && (
+                <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
+                  {item.material}
+                </span>
+              )}
 
-          {size && (
-            <p className="text-sm text-gray-600">
-              Size: {size}
-            </p>
-          )}
+              {item.size && (
+                <span className="rounded-full bg-gray-100 px-3 py-1 text-sm text-gray-700">
+                  {item.size}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
 
-          {material && (
-            <p className="text-sm text-gray-600">
-              Material: {material}
-            </p>
-          )}
+      {/* Error message */}
+      {errorMessage && (
+        <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
 
-          {confidenceValue != null && (
-            <p className="text-xs text-gray-400 mt-2">
-              Confidence: {confidenceValue}%
-            </p>
-          )}
-        </section>
+          <p className="flex-1">{errorMessage}</p>
 
-        {/* Identification confirmation */}
-        {!confirmed && (
-          <section className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
-            <p className="text-sm text-yellow-800 mb-3">
-              Please check whether the identified item is correct.
-            </p>
+          <button
+            type="button"
+            onClick={() => setErrorMessage('')}
+            className="shrink-0"
+            aria-label="Dismiss error"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
-            {!showCorrectInput ? (
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={handleConfirm}
-                  disabled={busy}
-                  className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white py-3 px-3 rounded-lg font-medium transition"
-                >
-                  <Check size={18} />
-                  {busy ? 'Saving...' : 'Confirm'}
-                </button>
+      {/* Identification confirmation */}
+      {!reviewed && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-6 w-6 shrink-0 text-amber-600" />
 
-                <button
-                  type="button"
-                  onClick={() => setShowCorrectInput(true)}
-                  disabled={busy}
-                  className="flex-1 flex items-center justify-center gap-2 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-400 text-white py-3 px-3 rounded-lg font-medium transition"
-                >
-                  <RefreshCw size={18} />
-                  Correct
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <label
-                  htmlFor="corrected-item-name"
-                  className="block text-sm font-medium text-gray-700"
-                >
-                  Enter the correct item name
-                </label>
+            <div className="flex-1">
+              <h3 className="font-semibold text-gray-900">
+                Confirm item identification
+              </h3>
 
-                <input
-                  id="corrected-item-name"
-                  type="text"
-                  value={correctedName}
-                  onChange={(event) =>
-                    setCorrectedName(event.target.value)
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      handleCorrectSubmit();
-                    }
-                  }}
-                  placeholder="e.g. paper receipt"
-                  maxLength={150}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
+              <p className="mt-1 text-sm text-gray-600">
+                Check whether the detected item is correct before continuing.
+                If it is incorrect, edit the item name first.
+              </p>
 
-                {correctError && (
-                  <p className="text-sm text-red-600">
-                    {correctError}
-                  </p>
-                )}
-
-                <div className="flex gap-2">
+              {!showEditForm ? (
+                <div className="mt-4 flex flex-wrap gap-3">
                   <button
                     type="button"
-                    onClick={handleCorrectSubmit}
-                    disabled={busy || !correctedName.trim()}
-                    className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white py-2 px-3 rounded-lg text-sm font-medium"
+                    onClick={handleConfirm}
+                    disabled={busy}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 font-medium text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {busy ? 'Saving...' : 'Save correction'}
+                    {busy ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Check className="h-4 w-4" />
+                    )}
+
+                    Confirm
                   </button>
 
                   <button
                     type="button"
                     onClick={() => {
-                      setShowCorrectInput(false);
-                      setCorrectedName('');
-                      setCorrectError('');
+                      setShowEditForm(true);
+                      setCorrectedName(
+                        item.name || item.itemName || ''
+                      );
+                      setErrorMessage('');
                     }}
                     disabled={busy}
-                    className="bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 text-gray-700 py-2 px-3 rounded-lg text-sm font-medium"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2.5 font-medium text-gray-700 transition hover:bg-gray-100 disabled:opacity-60"
                   >
-                    Cancel
+                    <Pencil className="h-4 w-4" />
+                    Edit
                   </button>
                 </div>
+              ) : (
+                <form
+                  onSubmit={handleEditSubmit}
+                  className="mt-4 space-y-3"
+                >
+                  <label
+                    htmlFor="corrected-item-name"
+                    className="block text-sm font-medium text-gray-700"
+                  >
+                    Correct item name
+                  </label>
+
+                  <input
+                    id="corrected-item-name"
+                    type="text"
+                    value={correctedName}
+                    onChange={(event) =>
+                      setCorrectedName(event.target.value)
+                    }
+                    placeholder="e.g. plastic water bottle"
+                    disabled={busy}
+                    required
+                    className="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-gray-900 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100"
+                  />
+
+                  <p className="text-xs text-gray-500">
+                    Saving your correction will confirm the item and update
+                    its identification through the existing backend API.
+                  </p>
+
+                  <div className="flex flex-wrap gap-3">
+                    <button
+                      type="submit"
+                      disabled={busy || !correctedName.trim()}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-600 px-4 py-2.5 font-medium text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {busy ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Check className="h-4 w-4" />
+                      )}
+
+                      Save and Confirm
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowEditForm(false);
+                        setCorrectedName(
+                          item.name || item.itemName || ''
+                        );
+                        setErrorMessage('');
+                      }}
+                      disabled={busy}
+                      className="rounded-xl border border-gray-300 bg-white px-4 py-2.5 font-medium text-gray-700 transition hover:bg-gray-100 disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recycling information */}
+      {reviewed && (
+        <div className="space-y-4">
+          {checking ? (
+            <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-gray-200 bg-white p-8 text-center">
+              <Loader2 className="h-8 w-8 animate-spin text-green-600" />
+
+              <h3 className="font-semibold text-gray-900">
+                Checking recycling information...
+              </h3>
+
+              <p className="text-sm text-gray-600">
+                Please wait while we retrieve the information.
+              </p>
+            </div>
+          ) : (
+            <div
+              className={`rounded-2xl border p-5 ${
+                isRecyclable
+                  ? 'border-green-200 bg-green-50'
+                  : isNotRecyclable
+                    ? 'border-red-200 bg-red-50'
+                    : 'border-amber-200 bg-amber-50'
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                {isRecyclable ? (
+                  <Check className="mt-0.5 h-6 w-6 shrink-0 text-green-700" />
+                ) : isNotRecyclable ? (
+                  <X className="mt-0.5 h-6 w-6 shrink-0 text-red-600" />
+                ) : (
+                  <AlertCircle className="mt-0.5 h-6 w-6 shrink-0 text-amber-600" />
+                )}
+
+                <div className="min-w-0 flex-1">
+                  <h3
+                    className={`font-bold ${
+                      isRecyclable
+                        ? 'text-green-800'
+                        : isNotRecyclable
+                          ? 'text-red-800'
+                          : 'text-amber-800'
+                    }`}
+                  >
+                    {isRecyclable
+                      ? 'Recyclable'
+                      : isNotRecyclable
+                        ? 'Not recyclable'
+                        : 'Recycling status unverified'}
+                  </h3>
+
+                  <p className="mt-1 text-sm text-gray-700">
+                    {isRecyclable
+                      ? 'This item is marked as recyclable.'
+                      : isNotRecyclable
+                        ? 'This item is marked as not recyclable through the available recycling process.'
+                        : 'We could not confirm the recycling status. Check local recycling guidance before disposing of this item.'}
+                  </p>
+
+                  {item.bin &&
+                    String(item.bin).toLowerCase() !== 'unknown' && (
+                      <p className="mt-3 text-sm text-gray-800">
+                        <span className="font-semibold">
+                          Recommended bin:
+                        </span>{' '}
+                        {item.bin}
+                      </p>
+                    )}
+
+                  {notes && (
+                    <div className="mt-3 whitespace-pre-line text-sm leading-relaxed text-gray-700">
+                      {notes}
+                    </div>
+                  )}
+
+                  {isUnverified && (
+                    <button
+                      type="button"
+                      onClick={handleRetry}
+                      disabled={checking}
+                      className="mt-4 inline-flex items-center gap-2 rounded-xl border border-amber-300 bg-white px-4 py-2 font-medium text-amber-800 transition hover:bg-amber-100 disabled:opacity-60"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Retry recycling check
+                    </button>
+                  )}
+                </div>
               </div>
-            )}
-          </section>
-        )}
-
-        {/* Recycling status */}
-        {isRecyclable && (
-          <section className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Check className="text-green-600" size={22} />
-              <h4 className="font-semibold text-green-800">
-                Recyclable
-              </h4>
             </div>
+          )}
 
-            {bin && bin.toLowerCase() !== 'unknown' && (
-              <p className="text-sm text-green-700">
-                Recommended bin: {bin}
-              </p>
-            )}
+          {/* Available actions */}
+          {!checking && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={handleRecycleClick}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 font-semibold text-white transition hover:bg-green-700"
+              >
+                <Recycle className="h-5 w-5" />
+                Recycle
+                <ArrowRight className="h-4 w-4" />
+              </button>
 
-            {notes && (
-              <p className="text-sm text-green-700 mt-2 whitespace-pre-line">
-                {notes}
-              </p>
-            )}
-          </section>
-        )}
-
-        {isNotRecyclable && (
-          <section className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <X className="text-red-600" size={22} />
-              <h4 className="font-semibold text-red-800">
-                Not Recyclable
-              </h4>
+              <button
+                type="button"
+                onClick={handleReuseClick}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-green-600 bg-white px-5 py-3 font-semibold text-green-700 transition hover:bg-green-50"
+              >
+                <RefreshCw className="h-5 w-5" />
+                Find reuse ideas
+                <ArrowRight className="h-4 w-4" />
+              </button>
             </div>
-
-            {notes && (
-              <p className="text-sm text-red-700 whitespace-pre-line">
-                {notes}
-              </p>
-            )}
-          </section>
-        )}
-
-        {isUnverified && (
-          <section className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <AlertCircle
-                className="text-amber-600 shrink-0"
-                size={22}
-              />
-              <h4 className="font-semibold text-amber-800">
-                Recycling Status Unverified
-              </h4>
-            </div>
-
-            <p className="text-sm text-amber-800">
-              We couldn't confirm whether this item is accepted for
-              recycling. Check your local recycling guidelines before
-              placing it in a recycling bin.
-            </p>
-
-            {notes && (
-              <p className="text-sm text-amber-700 mt-2 whitespace-pre-line">
-                {notes}
-              </p>
-            )}
-          </section>
-        )}
-
-        {/* Recycle and reuse actions */}
-        <section className="flex gap-3">
-          <button
-            type="button"
-            onClick={onRecycle}
-            className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-lg font-medium transition"
-          >
-            <Recycle size={20} />
-            Recycle
-          </button>
-
-          <button
-            type="button"
-            onClick={onReuse}
-            className="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-3 px-4 rounded-lg font-medium transition"
-          >
-            Reuse
-          </button>
-        </section>
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,3 @@
-
 package com.threer.service;
 
 import com.threer.dto.ScanRequest;
@@ -41,8 +40,8 @@ public class ScanService {
         this.conditionService = conditionService;
     }
 
-    // Identify an item, save it, and verify recycling automatically
-    // when identification confidence is at least 80%.
+    // Identify and save an item.
+    // Never automatically confirm identification based on AI confidence.
     public ScanResponse scan(ScanRequest request) {
 
         if (request == null
@@ -83,6 +82,7 @@ public class ScanService {
             );
         }
 
+        // Create the scanned item using the AI identification.
         ScannedItem item = new ScannedItem();
 
         item.setName(vision.item());
@@ -100,15 +100,16 @@ public class ScanService {
 
         item.setUserId(userId);
 
-        boolean confirmed =
-                toConfidencePercent(vision.confidence()) >= 80.0;
+        // IMPORTANT:
+        // Every item requires user confirmation, even at 100% confidence.
+        item.setIdentificationConfirmed(false);
 
-        item.setIdentificationConfirmed(confirmed);
+        // Do not make a recycling decision before confirmation.
         item.setRecyclable(false);
         item.setRecyclingStatus("UNVERIFIED");
         item.setBin("unknown");
         item.setDescription(
-                "Recycling information has not been verified yet."
+                "Please confirm the identified item before checking recycling information."
         );
 
         ScannedItem saved = scannedItemRepository.save(item);
@@ -116,16 +117,13 @@ public class ScanService {
         System.out.println("Saved scanned item: " + saved.getId());
         System.out.println("Identified item: " + saved.getName());
         System.out.println("Material: " + saved.getMaterial());
-        System.out.println("Identification confirmed: " + confirmed);
+        System.out.println("AI confidence: " + saved.getConfidence());
+        System.out.println("Identification confirmed: false");
+        System.out.println(
+                "Waiting for the user to confirm or correct the item."
+        );
 
-        if (confirmed) {
-            System.out.println(
-                    "========== AUTOMATIC RECYCLING VERIFICATION =========="
-            );
-
-            return loadRecycling(saved.getId());
-        }
-
+        // Return the identification result without calling Tavily.
         return buildResponse(
                 saved,
                 "Please confirm the identified item before checking recycling information.",
@@ -193,6 +191,7 @@ public class ScanService {
                     "Tavily search failed or timed out: " + e.getMessage()
             );
 
+            // A failed search must not be treated as proof of recyclability.
             results = List.of();
         }
 
@@ -439,7 +438,7 @@ public class ScanService {
             );
         }
 
-        // Fallback for common packaging when search evidence is inconclusive.
+        // Existing fallback for common packaging.
         if (plasticBottle) {
             return commonPackagingDecision(true, false, sources);
         }
@@ -539,12 +538,6 @@ public class ScanService {
 
     private String safe(String value) {
         return value == null ? "" : value;
-    }
-
-    private double toConfidencePercent(double confidence) {
-        return confidence <= 1.0
-                ? confidence * 100.0
-                : confidence;
     }
 
     // Build the response shared by scanning and recycling endpoints.
