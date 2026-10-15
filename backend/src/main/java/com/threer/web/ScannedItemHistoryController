@@ -1,0 +1,33 @@
+package com.threer.web;
+
+import com.threer.model.ScannedItem;
+import com.threer.repository.ScannedItemRepository;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Comparator;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api")
+public class ScannedItemHistoryController {
+
+    private final ScannedItemRepository scannedItemRepository;
+
+    public ScannedItemHistoryController(
+            ScannedItemRepository scannedItemRepository) {
+        this.scannedItemRepository = scannedItemRepository;
+    }
+
+    @GetMapping("/scan-history")
+    public List<ScannedItem> getScanHistory() {
+        return scannedItemRepository.findAll()
+                .stream()
+                .sorted(Comparator.comparing(
+                        ScannedItem::getScannedAt,
+                        Comparator.nullsLast(Comparator.reverseOrder())
+                ))
+                .toList();
+    }
+}
