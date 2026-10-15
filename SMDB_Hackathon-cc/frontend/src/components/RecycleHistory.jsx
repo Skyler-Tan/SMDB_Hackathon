@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Recycle,
@@ -12,12 +13,17 @@ import {
   Scale,
 } from 'lucide-react';
 
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || '/api';
+
 const formatDate = (value) => {
   if (!value) return 'Date unavailable';
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) return 'Date unavailable';
+  if (Number.isNaN(date.getTime())) {
+    return 'Date unavailable';
+  }
 
   return date.toLocaleString('en-MY', {
     day: 'numeric',
@@ -64,7 +70,10 @@ export default function RecycleHistory({ userId }) {
     setError('');
 
     try {
-      const url = new URL('/api/history', window.location.origin);
+      const url = new URL(
+        `${API_BASE_URL.replace(/\/+$/, '')}/history`,
+        window.location.origin
+      );
 
       if (userId) {
         url.searchParams.set('userId', userId);
@@ -149,12 +158,10 @@ export default function RecycleHistory({ userId }) {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 p-4 sm:p-6">
-      {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="mb-2 flex items-center gap-2">
             <Recycle size={25} className="text-green-600" />
-
             <h2 className="text-2xl font-bold text-gray-900">
               Recycle History
             </h2>
@@ -179,7 +186,6 @@ export default function RecycleHistory({ userId }) {
         </button>
       </div>
 
-      {/* Error */}
       {error && (
         <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
@@ -204,21 +210,16 @@ export default function RecycleHistory({ userId }) {
         </div>
       )}
 
-      {/* Summary */}
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-2xl border border-green-200 bg-green-50 p-4 sm:p-5">
           <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-green-100">
             <Recycle className="h-5 w-5 text-green-700" />
           </div>
 
-          <p className="text-sm text-green-800">
-            Recycling events
-          </p>
-
+          <p className="text-sm text-green-800">Recycling events</p>
           <p className="mt-1 text-3xl font-bold text-green-900">
             {totals.events}
           </p>
-
           <p className="mt-1 text-xs text-green-700">
             {totals.quantity} item(s) in total
           </p>
@@ -229,10 +230,7 @@ export default function RecycleHistory({ userId }) {
             <Award className="h-5 w-5 text-amber-700" />
           </div>
 
-          <p className="text-sm text-amber-800">
-            Points earned
-          </p>
-
+          <p className="text-sm text-amber-800">Points earned</p>
           <p className="mt-1 text-3xl font-bold text-amber-900">
             {formatNumber(totals.points, 0)}
           </p>
@@ -243,10 +241,7 @@ export default function RecycleHistory({ userId }) {
             <Droplets className="h-5 w-5 text-blue-700" />
           </div>
 
-          <p className="text-sm text-blue-800">
-            Water saved
-          </p>
-
+          <p className="text-sm text-blue-800">Water saved</p>
           <p className="mt-1 text-2xl font-bold text-blue-900">
             {formatNumber(totals.water)} L
           </p>
@@ -257,17 +252,13 @@ export default function RecycleHistory({ userId }) {
             <Leaf className="h-5 w-5 text-emerald-700" />
           </div>
 
-          <p className="text-sm text-emerald-800">
-            CO₂ impact
-          </p>
-
+          <p className="text-sm text-emerald-800">CO₂ impact</p>
           <p className="mt-1 text-2xl font-bold text-emerald-900">
             {formatNumber(totals.co2)} kg
           </p>
         </div>
       </div>
 
-      {/* Recycle records */}
       <section>
         <h3 className="mb-4 font-semibold text-gray-900">
           Recent recycling activity
@@ -321,30 +312,21 @@ export default function RecycleHistory({ userId }) {
 
                   <div className="mt-4 grid grid-cols-2 gap-3">
                     <div className="rounded-lg bg-gray-50 p-3">
-                      <p className="text-xs text-gray-500">
-                        Quantity
-                      </p>
-
+                      <p className="text-xs text-gray-500">Quantity</p>
                       <p className="mt-1 font-semibold text-gray-900">
                         {formatNumber(record.quantity, 0)} item(s)
                       </p>
                     </div>
 
                     <div className="rounded-lg bg-gray-50 p-3">
-                      <p className="text-xs text-gray-500">
-                        Recycling bin
-                      </p>
-
+                      <p className="text-xs text-gray-500">Recycling bin</p>
                       <p className="mt-1 break-words font-semibold text-gray-900">
                         {formatBin(record.bin)}
                       </p>
                     </div>
 
                     <div className="rounded-lg bg-amber-50 p-3">
-                      <p className="text-xs text-amber-700">
-                        Points earned
-                      </p>
-
+                      <p className="text-xs text-amber-700">Points earned</p>
                       <p className="mt-1 flex items-center gap-1 font-semibold text-amber-800">
                         <Award size={16} />
                         +{formatNumber(record.pointsEarned, 0)}
@@ -352,10 +334,7 @@ export default function RecycleHistory({ userId }) {
                     </div>
 
                     <div className="rounded-lg bg-emerald-50 p-3">
-                      <p className="text-xs text-emerald-700">
-                        Material recycled
-                      </p>
-
+                      <p className="text-xs text-emerald-700">Material recycled</p>
                       <p className="mt-1 flex items-center gap-1 font-semibold text-emerald-800">
                         <Scale size={16} />
                         {formatNumber(record.materialGrams)} g
