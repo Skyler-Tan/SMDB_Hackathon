@@ -15,7 +15,11 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 
 @RestController
-@CrossOrigin(origins = "http://localhost:4200")
+@CrossOrigin(origins = {
+    "https://sampies-web.onrender.com",
+    "http://localhost:5173",
+    "http://localhost:4200"
+})
 @RequestMapping("/api")
 public class ScanController {
 
