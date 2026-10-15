@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Calendar,
@@ -118,18 +117,19 @@ export default function History({ userId, refreshKey }) {
     setError('');
 
     try {
-      const url = new URL('/api/scan-history', window.location.origin);
+      const apiBase = import.meta.env.VITE_API_BASE_URL || '/api';
+      const url = `${apiBase}/scan/history`;
 
-      // Include userId only when the backend supports user-specific history.
-      if (userId) {
-        url.searchParams.set('userId', userId);
-      }
-
-      const response = await fetch(url.toString());
+      const response = await fetch(
+        userId
+          ? `${url}?userId=${encodeURIComponent(userId)}`
+          : url
+      );
 
       if (!response.ok) {
+        const message = await response.text();
         throw new Error(
-          `Failed to load history. HTTP ${response.status}`
+          `Failed to load history. HTTP ${response.status}: ${message}`
         );
       }
 
@@ -155,6 +155,7 @@ export default function History({ userId, refreshKey }) {
       console.error('Failed to load scan history:', err);
 
       setError(
+        err.message ||
         'Unable to load scan history. Check that the backend is running and the scan-history API endpoint exists.'
       );
     } finally {
