@@ -78,7 +78,9 @@ export default function Reuse({ item, onClose }) {
     setSelectedGuide(null);
 
     try {
-      const response = await fetch('/api/reuse', {
+      const apiBase = import.meta.env.VITE_API_BASE_URL || '/api';
+
+      const response = await fetch(`${apiBase}/reuse`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
