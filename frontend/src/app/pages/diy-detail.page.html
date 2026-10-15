@@ -1,0 +1,51 @@
+<section class="detail">
+  @if (error()) {
+    <p class="err">{{ error() }}</p>
+  }
+
+  @if (guide(); as diy) {
+    <a class="back" [routerLink]="['/reuse']" [queryParams]="{ material: diy.material }">← Ideas</a>
+    <p class="eyebrow">{{ diy.difficulty }} · {{ diy.material }}</p>
+    <h1>{{ diy.title }}</h1>
+    <p class="summary">{{ diy.summary }}</p>
+
+    @if (videoUrl(); as url) {
+      <div class="video">
+        <iframe [src]="url" title="DIY video" allowfullscreen></iframe>
+      </div>
+      <p class="muted">If the video does not load, follow the steps below.</p>
+    }
+
+    <h2>Tools</h2>
+    <ul>
+      @for (tool of diy.tools; track tool) {
+        <li>{{ tool }}</li>
+      }
+    </ul>
+
+    <h2>Materials</h2>
+    <ul>
+      @for (mat of diy.materials; track mat) {
+        <li>{{ mat }}</li>
+      }
+    </ul>
+
+    <h2>Steps</h2>
+    <ol class="step-list">
+      @for (step of diy.steps; track step; let i = $index) {
+        <li class="step-item">
+          <div class="step-visual">
+            <div class="step-badge">{{ i + 1 }}</div>
+            <div class="step-icon" [innerHTML]="getStepIcon(step)"></div>
+            @if (i < diy.steps.length - 1) {
+              <div class="step-connector"></div>
+            }
+          </div>
+          <div class="step-body">
+            <p class="step-text">{{ step }}</p>
+          </div>
+        </li>
+      }
+    </ol>
+  }
+</section>

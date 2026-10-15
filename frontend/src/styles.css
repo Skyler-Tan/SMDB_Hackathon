@@ -1,0 +1,50 @@
+@import "leaflet/dist/leaflet.css";
+
+:root {
+  --bg: #0f1f17;
+  --panel: #173324;
+  --card: #1d3d2c;
+  --ink: #f3f7f1;
+  --muted: #b7c9bb;
+  --line: #2e5740;
+  --yes: #3dcf86;
+  --no: #ef6b6b;
+  --plastic: #4aa3ff;
+  --paper: #e2c36b;
+  --glass: #7ad0c8;
+  --metal: #c9cdd3;
+  --accent: #8be0a4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: #07110c;
+  color: var(--ink);
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+body {
+  display: flex;
+  justify-content: center;
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}
+

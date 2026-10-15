@@ -1,0 +1,568 @@
+<section class="scan">
+  <header>
+    <p class="eyebrow">3R</p>
+    <h1>Scan an item</h1>
+    <p>{{ status() }}</p>
+  </header>
+
+  <div class="viewport">
+    <video #video playsinline autoplay muted></video>
+    <canvas #frame hidden></canvas>
+  </div>
+
+  <div class="actions">
+    <button
+      class="shutter"
+      type="button"
+      (click)="capture()"
+      [disabled]="busy()">
+      {{ busy() ? 'Scanning...' : 'Scan' }}
+    </button>
+
+    <label class="upload">
+      Upload photo
+      <input
+        type="file"
+        accept="image/*"
+        (change)="onUpload($event)"
+        [disabled]="busy()" />
+    </label>
+  </div>
+
+  @if (error()) {
+    <p class="err">{{ error() }}</p>
+  }
+</section>
+
+@if (result(); as scan) {
+  <div class="sheet">
+    <div class="sheet-card">
+
+      @if (!reuseMode()) {
+        <p class="eyebrow">AI scan result</p>
+        <h2>{{ scan.name }}</h2>
+
+        <div class="details">
+          @if (scan.brand && scan.brand !== 'unknown') {
+            <div class="detail">
+              <span>Brand</span>
+              <strong>{{ scan.brand }}</strong>
+            </div>
+          }
+
+          @if (scan.size && scan.size !== 'unknown') {
+            <div class="detail">
+              <span>Size</span>
+              <strong>{{ scan.size }}</strong>
+            </div>
+          }
+
+          @if (scan.container && scan.container !== 'unknown') {
+            <div class="detail">
+              <span>Container</span>
+              <strong>{{ scan.container }}</strong>
+            </div>
+          }
+
+          <div class="detail">
+            <span>Material</span>
+            <strong>{{ scan.material }}</strong>
+          </div>
+
+          <div class="detail">
+            <span>AI confidence</span>
+            <strong>
+              {{ confidencePercent(scan.confidence).toFixed(0) }}%
+            </strong>
+          </div>
+        </div>
+
+        <!-- CONDITION SCORE -->
+        @if (scan.conditionScore !== undefined) {
+          <div class="condition-card">
+            <div class="condition-top">
+              <div class="condition-info">
+                <p class="eyebrow">Recyclability score</p>
+                <p class="condition-label">{{ scan.conditionLabel }}</p>
+              </div>
+              <div
+                class="condition-ring"
+                [class.ring-excellent]="scan.conditionScore >= 80"
+                [class.ring-good]="scan.conditionScore >= 60 && scan.conditionScore < 80"
+                [class.ring-fair]="scan.conditionScore >= 40 && scan.conditionScore < 60"
+                [class.ring-poor]="scan.conditionScore < 40">
+                <span class="condition-score">{{ scan.conditionScore }}</span>
+                <span class="condition-max">/100</span>
+              </div>
+            </div>
+
+            <div class="condition-bar-track">
+              <div
+                class="condition-bar-fill"
+                [style.width.%]="scan.conditionScore"
+                [class.fill-excellent]="scan.conditionScore >= 80"
+                [class.fill-good]="scan.conditionScore >= 60 && scan.conditionScore < 80"
+                [class.fill-fair]="scan.conditionScore >= 40 && scan.conditionScore < 60"
+                [class.fill-poor]="scan.conditionScore < 40">
+              </div>
+            </div>
+
+            @if (scan.conditionTips.length) {
+              <ul class="condition-tips">
+                @for (tip of scan.conditionTips; track tip) {
+                  <li>{{ tip }}</li>
+                }
+              </ul>
+            }
+          </div>
+        }
+
+        <!-- CONFIRMATION FOR MEDIUM / LOW CONFIDENCE -->
+        @if (
+          identificationLevel() !== 'high' &&
+          !identificationConfirmed()
+        ) {
+          <div class="confirmation-panel">
+            @if (identificationLevel() === 'low') {
+              <p class="eyebrow">Low confidence</p>
+              <h3>We're not sure about this item</h3>
+              <p>
+                The AI may have identified the item incorrectly.
+                Please check the result before continuing.
+              </p>
+            } @else {
+              <p class="eyebrow">Please confirm</p>
+              <h3>Is this the correct item?</h3>
+              <p>
+                The AI identified this as
+                <strong>{{ scan.name }}</strong>.
+                Is that correct?
+              </p>
+            }
+
+            @if (!correctionMode()) {
+              <div class="row">
+                <button
+                  class="primary"
+                  type="button"
+                  (click)="confirmIdentification()"
+                  [disabled]="busy()">
+                  Yes, correct
+                </button>
+
+                <button
+                  class="secondary"
+                  type="button"
+                  (click)="rejectIdentification()"
+                  [disabled]="busy()">
+                  No, change it
+                </button>
+              </div>
+            } @else {
+              <form
+                class="correction-form"
+                (submit)="$event.preventDefault(); submitCorrection()">
+
+                <label for="correctedItemName">
+                  What is the correct item?
+                </label>
+
+                <input
+                  id="correctedItemName"
+                  type="text"
+                  maxlength="150"
+                  placeholder="e.g. paper receipt"
+                  [value]="correctedName()"
+                  (input)="correctedName.set($any($event.target).value)"
+                  [disabled]="correctionLoading()"
+                  required />
+
+                <p class="notes">
+                  Enter a clear item name. For example:
+                  plastic water bottle, aluminium can, or paper receipt.
+                </p>
+
+                <button
+                  class="primary"
+                  type="submit"
+                  [disabled]="correctionLoading() || !correctedName().trim()">
+                  {{
+                    correctionLoading()
+                      ? 'Saving...'
+                      : 'Confirm corrected item'
+                  }}
+                </button>
+
+                <button
+                  class="ghost"
+                  type="button"
+                  (click)="correctionMode.set(false); error.set('')"
+                  [disabled]="correctionLoading()">
+                  Back
+                </button>
+              </form>
+            }
+          </div>
+        }
+
+        <!-- SHOW THESE FEATURES ONLY AFTER CONFIRMATION -->
+        @if (identificationConfirmed()) {
+
+          <div class="pills">
+            @if (recyclingLoading()) {
+              <span class="bin">Recyclable: checking...</span>
+              <span class="bin">Bin: checking...</span>
+            } @else {
+              <span
+                [class.yes]="scan.recyclable"
+                [class.no]="!scan.recyclable">
+                Recyclable: {{ scan.recyclable ? 'yes' : 'no' }}
+              </span>
+
+              <span class="bin">Bin: {{ scan.bin }}</span>
+            }
+          </div>
+
+          @if (scan.notes) {
+            <p class="notes">{{ scan.notes }}</p>
+          }
+
+          @if (scan.recyclable && !recyclingLoading()) {
+            <section class="impact-calculator" aria-label="Estimated environmental impact calculator">
+              <div class="impact-calculator-heading">
+                <div>
+                  <p class="eyebrow">YOUR IMPACT ESTIMATE</p>
+                  <h3>What recycling can save</h3>
+                </div>
+                <span class="estimate-badge">Approximate</span>
+              </div>
+              <p class="impact-calculator-copy">Per item estimate × {{ quantity() }} {{ quantity() === 1 ? 'item' : 'items' }}</p>
+              <div class="impact-metrics">
+                <article class="impact-metric water-metric">
+                  <span class="metric-icon" aria-hidden="true">💧</span>
+                  <span class="metric-label">Water saved</span>
+                  <strong>{{ (scan.waterLiters * quantity()).toFixed(1) }} <small>L</small></strong>
+                  <span class="metric-foot">{{ scan.waterLiters }} L per item</span>
+                </article>
+                <article class="impact-metric carbon-metric">
+                  <span class="metric-icon" aria-hidden="true">🌱</span>
+                  <span class="metric-label">GHG avoided</span>
+                  <strong>{{ (scan.co2Kg * quantity()).toFixed(2) }} <small>kg</small></strong>
+                  <span class="metric-foot">{{ scan.co2Kg }} kg per item</span>
+                </article>
+                <article class="impact-metric material-metric">
+                  <span class="metric-icon" aria-hidden="true">♻️</span>
+                  <span class="metric-label">Material recovered</span>
+                  <strong>{{ (scan.materialGrams * quantity()).toFixed(0) }} <small>g</small></strong>
+                  <span class="metric-foot">{{ scan.materialGrams }} g per item</span>
+                </article>
+              </div>
+              <div class="impact-reward"><span>Reward points</span><strong>+{{ scan.rewardPoints * quantity() }} pts</strong></div>
+              <p class="impact-disclaimer">Estimates are educational approximations based on the selected item, not direct measurements.</p>
+            </section>
+
+            <div class="qty">
+              <button
+                type="button"
+                (click)="changeQty(-1)"
+                [disabled]="busy()">
+                −
+              </button>
+
+              <strong>{{ quantity() }}</strong>
+
+              <button
+                type="button"
+                (click)="changeQty(1)"
+                [disabled]="busy()">
+                +
+              </button>
+            </div>
+          }
+
+          @if (recycleResult(); as done) {
+            <section class="saved impact-result-card">
+              <div class="saved-heading"><span class="saved-check" aria-hidden="true">✓</span><div><p class="eyebrow">IMPACT RECORDED</p><h3>Great work!</h3></div><strong class="saved-points">+{{ done.pointsThisTurn }} pts</strong></div>
+              <p class="saved-summary">{{ done.quantity }} {{ done.itemName }}{{ done.quantity > 1 ? 's' : '' }} recycled</p>
+              <div class="saved-metrics">
+                <div><span>💧 Water saved</span><strong>{{ done.waterLitersThisTurn }} L</strong></div>
+                <div><span>🌱 GHG avoided</span><strong>{{ done.co2KgThisTurn }} kg</strong></div>
+                <div><span>♻️ Material recovered</span><strong>{{ done.materialGramsThisTurn }} g</strong><small>{{ done.materialLabel }}</small></div>
+              </div>
+              @if (done.newBadges.length) { <p class="saved-badges">🏅 New rewards: {{ done.newBadges.join(', ') }}</p> }
+            </section>
+          }
+
+          <!-- NEARBY RECYCLING CENTRES -->
+          @if (recycleResult()) {
+            <div class="nearby-section">
+              <div class="nearby-header">
+                <div>
+                  <p class="eyebrow">Nearby</p>
+                  <h3>Drop-off centres</h3>
+                </div>
+                <button class="nearby-map-button" type="button" (click)="openRecyclingMap()">Open full map ↗</button>
+              </div>
+
+              @if (nearbyLoading()) {
+                <div class="nearby-loading">
+                  <span class="nearby-spinner"></span>
+                  <span>Finding centres near you…</span>
+                </div>
+              }
+
+              @if (nearbyError() && !nearbyLoading()) {
+                <p class="nearby-error">{{ nearbyError() }}</p>
+                <button
+                  class="ghost nearby-retry"
+                  type="button"
+                  (click)="getNearby(result()!.material)">
+                  Try again
+                </button>
+              }
+
+              @if (!nearbyLoading() && nearbyPlaces().length) {
+                <ul class="nearby-list">
+                  @for (place of nearbyPlaces(); track place.mapsUrl) {
+                    <li class="nearby-card">
+                      <div class="nearby-card-body">
+                        <p class="nearby-name">{{ place.name }}</p>
+                        <p class="nearby-address">{{ place.address }}</p>
+                        <div class="nearby-meta">
+                          @if (place.rating > 0) {
+                            <span class="nearby-rating">
+                              ★ {{ place.rating.toFixed(1) }}
+                            </span>
+                          }
+                          <span class="nearby-open">{{ distanceLabel(place) }}</span>
+                          @if (place.openNow !== 'Unknown') {
+                            <span class="nearby-open" [class.open]="place.openNow === 'Open now'" [class.closed]="place.openNow === 'Closed'">{{ place.openNow }}</span>
+                          }
+                        </div>
+                      </div>
+                      <a
+                        class="nearby-directions"
+                        [href]="place.mapsUrl"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        [attr.aria-label]="'Get directions to ' + place.name">
+                        ↗
+                      </a>
+                    </li>
+                  }
+                </ul>
+              }
+            </div>
+          }
+
+          <div class="row">
+            <button
+              class="primary"
+              type="button"
+              (click)="recycle()"
+              [disabled]="
+                !scan.recyclable ||
+                recyclingLoading() ||
+                busy()
+              ">
+              Recycle
+            </button>
+
+            <button
+              class="secondary"
+              type="button"
+              (click)="reuse()"
+              [disabled]="busy()">
+              Reuse
+            </button>
+          </div>
+        }
+
+        <button
+          class="ghost"
+          type="button"
+          (click)="closeResult()"
+          [disabled]="busy() || correctionLoading()">
+          Scan another
+        </button>
+      }
+
+      <!-- REUSE SCREEN -->
+      @if (reuseMode() && identificationConfirmed()) {
+        @if (reuseResult(); as reuse) {
+
+          @if (!selectedReuse()) {
+            <div class="reuse-section">
+              <div class="reuse-header">
+                <div>
+                  <p class="eyebrow">AI REUSE</p>
+                  <h3>Give it another life</h3>
+                </div>
+
+                <select
+                  [value]="reuseDifficulty()"
+                  (change)="changeReuseDifficulty($any($event.target).value)"
+                  [disabled]="busy()">
+                  <option value="Easy">Easy</option>
+                  <option value="Medium">Medium</option>
+                  <option value="Hard">Hard</option>
+                </select>
+              </div>
+
+              <p class="reuse-help">
+                Choose an idea to see the full tutorial.
+              </p>
+
+              <div class="reuse-ideas">
+                @for (idea of reuse.ideas; track idea.title) {
+                  <button
+                    type="button"
+                    class="reuse-idea"
+                    (click)="openReuseIdea(idea)">
+                    <div>
+                      <h4>{{ idea.title }}</h4>
+                      <span>{{ idea.difficulty }}</span>
+                    </div>
+                    <strong>→</strong>
+                  </button>
+                }
+              </div>
+
+              <button
+                class="ghost"
+                type="button"
+                (click)="closeReuse()">
+                Back to item
+              </button>
+            </div>
+          }
+
+          @if (selectedReuse(); as idea) {
+            <div class="reuse-detail">
+              <button
+                type="button"
+                class="back-button"
+                (click)="closeReuseIdea()">
+                ← Back to ideas
+              </button>
+
+              <div class="reuse-detail-header">
+                <p class="eyebrow">{{ idea.difficulty }}</p>
+                <h2>{{ idea.title }}</h2>
+                <p>{{ idea.summary }}</p>
+              </div>
+
+              @if (idea.materials.length) {
+                <div class="reuse-list">
+                  <h3>Materials</h3>
+                  <ul>
+                    @for (material of idea.materials; track material) {
+                      <li>{{ material }}</li>
+                    }
+                  </ul>
+                </div>
+              }
+
+              @if (idea.tools.length) {
+                <div class="reuse-list">
+                  <h3>Tools</h3>
+                  <ul>
+                    @for (tool of idea.tools; track tool) {
+                      <li>{{ tool }}</li>
+                    }
+                  </ul>
+                </div>
+              }
+
+              @if (idea.steps.length) {
+                <div class="reuse-list">
+                  <h3>Steps</h3>
+                  <ol class="step-list">
+                    @for (step of idea.steps; track step; let i = $index) {
+                      <li class="step-item">
+                        <div class="step-visual">
+                          <div class="step-badge">{{ i + 1 }}</div>
+                          <div class="step-icon" [innerHTML]="getStepIcon(step)"></div>
+                          @if (!$last) {
+                            <div class="step-connector"></div>
+                          }
+                        </div>
+                        <div class="step-body">
+                          <p class="step-text">{{ step }}</p>
+                        </div>
+                      </li>
+                    }
+                  </ol>
+                </div>
+              }
+
+              @if (idea.tutorialUrl) {
+                <a
+                  class="tutorial-button"
+                  [href]="idea.tutorialUrl"
+                  target="_blank"
+                  rel="noopener noreferrer">
+                  ▶ Watch tutorial
+                </a>
+              }
+
+              @if (
+                idea.sourceUrl &&
+                idea.sourceUrl !== idea.tutorialUrl
+              ) {
+                <a
+                  class="source-link"
+                  [href]="idea.sourceUrl"
+                  target="_blank"
+                  rel="noopener noreferrer">
+                  🔗 {{ idea.sourceTitle || 'View source' }}
+                </a>
+              }
+
+              <button
+                class="ghost"
+                type="button"
+                (click)="closeReuseIdea()">
+                Back to ideas
+              </button>
+            </div>
+          }
+
+        } @else {
+          <div class="reuse-section">
+            <p class="eyebrow">AI REUSE</p>
+            <h3>Give it another life</h3>
+
+            @if (reuseLoading()[reuseDifficulty()]) {
+              <p>
+                Preparing your {{ reuseDifficulty().toLowerCase() }}
+                DIY ideas...
+              </p>
+
+              <p class="reuse-help">
+                Your ideas are being generated in the background.
+              </p>
+            } @else {
+              <p>We couldn't load the ideas just now.</p>
+
+              <button
+                type="button"
+                class="primary"
+                (click)="changeReuseDifficulty(reuseDifficulty())">
+                Try again
+              </button>
+            }
+
+            <button
+              class="ghost"
+              type="button"
+              (click)="closeReuse()">
+              Back to item
+            </button>
+          </div>
+        }
+      }
+
+    </div>
+  </div>
+}
