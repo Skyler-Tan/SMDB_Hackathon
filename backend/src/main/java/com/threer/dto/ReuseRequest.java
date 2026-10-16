@@ -1,9 +1,9 @@
-
 package com.threer.dto;
 
 public class ReuseRequest {
 
     private String itemId;
+    private String userId;
     private String name;
     private String brand;
     private String size;
@@ -17,6 +17,14 @@ public class ReuseRequest {
 
     public void setItemId(String itemId) {
         this.itemId = itemId;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public void setUserId(String userId) {
+        this.userId = userId;
     }
 
     public String getName() {
