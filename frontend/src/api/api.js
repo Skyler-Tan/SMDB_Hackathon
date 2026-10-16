@@ -11,8 +11,8 @@ const api = axios.create({
 
 // Scan and item identification
 export const scanApi = {
-  scan: (imageData) =>
-    api.post('/scan', { image: imageData }),
+  scan: (imageData, userId) =>
+  api.post('/scan', { image: imageData, userId }),
 
   confirmIdentification: (itemId) =>
     api.post(`/scan/${itemId}/confirm`),
@@ -61,6 +61,46 @@ export const mapApi = {
     api.get('/places/recycling', {
       params: { lat, lng, material },
     }),
+};
+
+
+// Second-hand marketplace
+export const marketApi = {
+  getListings: (params = {}) =>
+    api.get('/market/listings', { params }),
+ 
+  getListing: (id) =>
+    api.get(`/market/listings/${id}`),
+ 
+  create: (listing) =>
+    api.post('/market/listings', listing),
+ 
+  update: (id, listing) =>
+    api.put(`/market/listings/${id}`, listing),
+ 
+  // status: 'AVAILABLE' | 'RESERVED' | 'SOLD'
+  updateStatus: (id, status, userId) =>
+  api.patch(`/market/listings/${id}/status`, { status, userId }),
+ 
+  remove: (id, userId) =>
+    api.delete(`/market/listings/${id}`, {
+      params: userId ? { userId } : {},
+    }),
+ 
+  report: (id, body) =>
+    api.post(`/market/listings/${id}/report`, body),
+};
+
+// Saved reuse ideas
+export const savedIdeasApi = {
+  getAll: (userId) =>
+    api.get('/ideas/saved', { params: { userId } }),
+
+  save: (idea) =>
+    api.post('/ideas/saved', idea),
+
+  remove: (id, userId) =>
+    api.delete(`/ideas/saved/${id}`, { params: { userId } }),
 };
 
 export default api;

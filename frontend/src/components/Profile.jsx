@@ -1,15 +1,46 @@
 import { useState, useEffect } from 'react';
-import { Camera, Edit2, LogOut, Recycle, RefreshCw, ArrowRight } from 'lucide-react';
+import {
+  Camera,
+  Edit2,
+  LogOut,
+  Recycle,
+  RefreshCw,
+  ArrowRight,
+  Bookmark,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { recycleApi } from '../api/api';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export default function Profile({ user, onLogout, onEditProfile, userId }) {
   const [showImageUpload, setShowImageUpload] = useState(false);
   const [userStats, setUserStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [savedCount, setSavedCount] = useState(0);
 
   useEffect(() => {
     loadUserStats();
+  }, [userId]);
+
+  // Count of this user's saved reuse ideas.
+  useEffect(() => {
+    const loadSavedCount = async () => {
+      try {
+        const response = await fetch(
+          `${API_BASE}/ideas/saved?userId=${encodeURIComponent(userId || 'demo-user')}`
+        );
+
+        if (!response.ok) return;
+
+        const data = await response.json();
+        setSavedCount(Array.isArray(data) ? data.length : 0);
+      } catch (err) {
+        console.error('Failed to load saved ideas count:', err);
+      }
+    };
+
+    loadSavedCount();
   }, [userId]);
 
   const loadUserStats = async () => {
@@ -129,6 +160,25 @@ export default function Profile({ user, onLogout, onEditProfile, userId }) {
         </div>
         <p className="text-gray-600">Items you've recycled</p>
         <p className="mt-3 text-sm font-medium text-green-700">View all recycled items and activity history</p>
+      </Link>
+
+      <Link
+        to="/saved-ideas"
+        aria-label="View your saved reuse ideas"
+        className="mb-6 block rounded-2xl bg-white p-6 shadow-lg transition hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-green-500"
+      >
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h3 className="flex items-center gap-2 text-xl font-bold text-gray-900">
+            <Bookmark size={24} className="text-green-600" />
+            Saved Ideas
+          </h3>
+          <ArrowRight size={20} className="text-green-700" />
+        </div>
+        <div className="mb-2 text-4xl font-bold text-green-600">
+          {savedCount}
+        </div>
+        <p className="text-gray-600">Reuse ideas you've saved</p>
+        <p className="mt-3 text-sm font-medium text-green-700">View all saved ideas</p>
       </Link>
 
       <div className="bg-white rounded-2xl shadow-lg p-6">
