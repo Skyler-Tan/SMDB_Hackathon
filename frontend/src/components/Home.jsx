@@ -6,6 +6,7 @@ const facts = [
   { icon: Zap, title: 'Give materials a second life', text: 'Aluminium can be recycled repeatedly without losing its core properties.' },
   { icon: Leaf, title: 'Small actions add up', text: 'Sorting recyclables correctly helps keep useful materials out of landfill.' },
 ];
+
 const quickLinks = [
   { to: '/scan', icon: ScanLine, title: 'Scan an item', desc: 'Identify how to sort it', color: 'bg-emerald-100 text-emerald-700' },
   { to: '/map', icon: MapPin, title: 'Find a centre', desc: 'Explore nearby drop-offs', color: 'bg-sky-100 text-sky-700' },
@@ -37,6 +38,7 @@ export default function Home() {
       </div>
       <div className="mt-7 flex items-center gap-3 rounded-2xl bg-black/10 p-4 sm:max-w-md"><div className="rounded-xl bg-white/15 p-3"><Recycle size={28}/></div><div><p className="font-bold">Reuse. Recycle. Repeat.</p><p className="text-sm text-green-50">Better habits start with one choice.</p></div></div>
     </section>
+
     <section><div className="mb-3 flex items-end justify-between"><div><p className="text-sm font-semibold uppercase tracking-wider text-green-700">Get started</p><h3 className="text-xl font-bold">What would you like to do?</h3></div></div><div className="grid gap-3 sm:grid-cols-3">{quickLinks.map(({to,icon:Icon,title,desc,color})=><Link key={to} to={to} className="group rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"><div className={`mb-4 flex h-12 w-12 items-center justify-center rounded-2xl ${color}`}><Icon size={24}/></div><h4 className="font-bold">{title}</h4><p className="mt-1 text-sm text-gray-500">{desc}</p><ArrowRight size={18} className="mt-4 text-green-700 transition group-hover:translate-x-1"/></Link>)}</div></section>
 
     {/* Top recyclers (hard-coded) */}
@@ -66,6 +68,7 @@ export default function Home() {
 
     <section className="grid gap-4 md:grid-cols-5"><div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm md:col-span-2"><div className="mb-3 flex items-center gap-2"><Trophy className="text-amber-500" size={22}/><h3 className="font-bold">Top commentator spotlight</h3></div><div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-full bg-amber-100 text-lg">🌟</div><div><p className="font-semibold">Your name could be here next</p><p className="text-sm text-gray-500">Helpful comments make the community better.</p></div></div><Link to="/community" className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-green-700">Meet the community <ArrowRight size={15}/></Link><p className="mt-4 border-t border-gray-100 pt-3 text-xs text-gray-400">Community highlights will grow as members contribute.</p></div>
       <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm md:col-span-3"><div className="mb-4 flex items-center gap-2"><Lightbulb className="text-green-700" size={22}/><h3 className="font-bold">Quick eco facts</h3></div><div className="grid gap-4 sm:grid-cols-3">{facts.map(({icon:Icon,title,text})=><div key={title} className="rounded-xl bg-green-50 p-3"><Icon size={20} className="mb-2 text-green-700"/><p className="text-sm font-bold">{title}</p><p className="mt-1 text-xs leading-relaxed text-gray-600">{text}</p></div>)}</div></div></section>
+
     <div className="flex flex-col gap-3 rounded-2xl bg-gray-900 p-5 text-white sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><div className="rounded-xl bg-white/10 p-3"><MessageCircle size={22}/></div><div><h3 className="font-bold">Have a tip worth sharing?</h3><p className="text-sm text-gray-300">Inspire someone in the 34district community.</p></div></div><Link to="/community" className="inline-flex items-center justify-center gap-2 rounded-xl bg-green-500 px-4 py-3 font-bold hover:bg-green-400">Create a post <ArrowRight size={17}/></Link></div>
   </div>;
 }

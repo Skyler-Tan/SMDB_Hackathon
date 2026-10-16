@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Sampies</string>
-    <string name="title_activity_main">Sampies</string>
-    <string name="package_name">com.sampies.app</string>
-    <string name="custom_url_scheme">com.sampies.app</string>
-</resources>
