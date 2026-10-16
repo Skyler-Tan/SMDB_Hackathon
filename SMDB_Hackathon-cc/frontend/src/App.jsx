@@ -8,12 +8,12 @@ import {
 } from 'react-router-dom';
 import {
   Scan,
-  Home,
+  Home as HomeIcon,
   Users,
   User,
   MapPin,
-  History as HistoryIcon,
-  Recycle,
+  Sun,
+  Moon,
 } from 'lucide-react';
 
 import ScanComponent from './components/Scan';
@@ -22,10 +22,10 @@ import Rewards from './components/Rewards';
 import Login from './components/Login';
 import Profile from './components/Profile';
 import Community from './components/Community';
-import CommunityPosts from './components/CommunityPosts';
 import FetchRecyclingCentre from './components/FetchRecyclingCentre';
 import History from './components/History';
 import RecycleHistory from './components/RecycleHistory';
+import Home from './components/Home';
 
 function Navigation() {
   const location = useLocation();
@@ -33,12 +33,10 @@ function Navigation() {
   const isActive = (path) => location.pathname === path;
 
   const navItems = [
-    { path: '/', label: 'Home', Icon: Home },
+    { path: '/', label: 'Home', Icon: HomeIcon },
     { path: '/scan', label: 'Scan', Icon: Scan },
     { path: '/map', label: 'Map', Icon: MapPin },
     { path: '/community', label: 'Community', Icon: Users },
-    { path: '/history', label: 'Scan History', Icon: HistoryIcon },
-    { path: '/recycle-history', label: 'Recycle History', Icon: Recycle },
     { path: '/profile', label: 'Profile', Icon: User },
   ];
 
@@ -66,6 +64,7 @@ function Navigation() {
 
 function App() {
   const [user, setUser] = useState(null);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('34district-theme') === 'dark');
 
   const userId = user?.id || 'demo-user';
 
@@ -87,19 +86,18 @@ function App() {
 
   return (
     <Router>
-      <div className="min-h-screen bg-gray-100 pb-20">
-        <header className="bg-green-600 text-white p-4 shadow-md">
+      <div className={`app-shell min-h-screen pb-24 transition-colors ${darkMode ? 'dark-mode bg-gray-950 text-gray-100' : 'bg-gray-50 text-gray-900'}`}>
+        <header className="relative bg-[#74C365] p-4 text-white shadow-md">
           <h1 className="text-xl font-bold text-center">34district</h1>
-          <p className="text-center text-sm text-green-100">
-            Recycle, Reuse, Reduce
-          </p>
+          <p className="text-center text-sm text-green-100">Recycle, Reuse, Reduce</p>
+          <button type="button" onClick={() => setDarkMode((current) => { const next = !current; localStorage.setItem('34district-theme', next ? 'dark' : 'light'); return next; })} className="absolute right-4 top-4 rounded-full bg-white/15 p-2 transition hover:bg-white/25" aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'} title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>{darkMode ? <Sun size={19}/> : <Moon size={19}/>}</button>
         </header>
 
         <main className="pt-6">
           <Routes>
             <Route
               path="/"
-              element={<CommunityPosts userId={userId} />}
+              element={<Home />}
             />
 
             <Route

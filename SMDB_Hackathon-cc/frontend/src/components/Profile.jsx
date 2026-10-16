@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Camera, Edit2, LogOut, Recycle, RefreshCw } from 'lucide-react';
+import { Camera, Edit2, LogOut, Recycle, RefreshCw, ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { recycleApi } from '../api/api';
 
 export default function Profile({ user, onLogout, onEditProfile, userId }) {
@@ -111,16 +112,24 @@ export default function Profile({ user, onLogout, onEditProfile, userId }) {
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-        <h3 className="text-xl font-bold mb-4 flex items-center gap-2">
-          <Recycle size={24} className="text-green-600" />
-          Recycled Items
-        </h3>
-        <div className="text-4xl font-bold text-green-600 mb-2">
+      <Link
+        to="/recycle-history"
+        aria-label="View recycled items and recycling history"
+        className="mb-6 block rounded-2xl bg-white p-6 shadow-lg transition hover:shadow-xl focus:outline-none focus:ring-2 focus:ring-green-500"
+      >
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h3 className="flex items-center gap-2 text-xl font-bold text-gray-900">
+            <Recycle size={24} className="text-green-600" />
+            Recycled Items
+          </h3>
+          <ArrowRight size={20} className="text-green-700" />
+        </div>
+        <div className="mb-2 text-4xl font-bold text-green-600">
           {displayUser?.itemsRecycled || user.recycledItems || 0}
         </div>
         <p className="text-gray-600">Items you've recycled</p>
-      </div>
+        <p className="mt-3 text-sm font-medium text-green-700">View all recycled items and activity history</p>
+      </Link>
 
       <div className="bg-white rounded-2xl shadow-lg p-6">
         <h3 className="text-xl font-bold mb-4 flex items-center gap-2">

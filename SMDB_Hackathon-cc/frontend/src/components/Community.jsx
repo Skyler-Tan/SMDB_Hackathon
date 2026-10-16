@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Trophy, Medal, Award } from 'lucide-react';
 import { recycleApi } from '../api/api';
+import CommunityPosts from './CommunityPosts';
 
 export default function Community({ userId }) {
   const [leaderboard, setLeaderboard] = useState([]);
@@ -56,7 +57,9 @@ export default function Community({ userId }) {
 
   return (
     <div className="max-w-md mx-auto p-6">
-      <h2 className="text-2xl font-bold mb-6">Community Leaderboard</h2>
+      <h2 className="text-2xl font-bold mb-2">Community</h2>
+      <p className="mb-6 text-sm text-gray-500">Share your progress, swap ideas and celebrate greener habits together.</p>
+      <CommunityPosts userId={userId} />
 
       <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
         <h3 className="text-xl font-bold mb-4 flex items-center gap-2">

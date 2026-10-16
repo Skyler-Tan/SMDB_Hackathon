@@ -1,5 +1,6 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Recycle,
   CalendarDays,
@@ -11,6 +12,7 @@ import {
   Droplets,
   Leaf,
   Scale,
+  ArrowLeft,
 } from 'lucide-react';
 
 const API_BASE_URL =
@@ -55,6 +57,7 @@ const formatBin = (bin) => {
 };
 
 export default function RecycleHistory({ userId }) {
+  const navigate = useNavigate();
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -83,7 +86,7 @@ export default function RecycleHistory({ userId }) {
 
       if (!response.ok) {
         throw new Error(
-          `Failed to load recycle history (HTTP ${response.status}).`
+          `Failed to load recycled items (HTTP ${response.status}).`
         );
       }
 
@@ -104,10 +107,10 @@ export default function RecycleHistory({ userId }) {
 
       setHistory(records);
     } catch (err) {
-      console.error('Failed to load recycle history:', err);
+      console.error('Failed to load recycled items:', err);
 
       setError(
-        err.message || 'Unable to load recycle history.'
+        err.message || 'Unable to load recycled items.'
       );
     } finally {
       setLoading(false);
@@ -150,7 +153,7 @@ export default function RecycleHistory({ userId }) {
       <div className="mx-auto max-w-3xl rounded-2xl bg-white p-8 text-center">
         <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin text-green-600" />
         <p className="text-gray-600">
-          Loading recycle history...
+          Loading recycled items...
         </p>
       </div>
     );
@@ -158,32 +161,43 @@ export default function RecycleHistory({ userId }) {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 p-4 sm:p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <Recycle size={25} className="text-green-600" />
-            <h2 className="text-2xl font-bold text-gray-900">
-              Recycle History
-            </h2>
-          </div>
-
-          <p className="text-sm text-gray-500">
-            Track your recycling activity, rewards, and environmental impact.
-          </p>
-        </div>
-
+      <div className="space-y-4">
         <button
           type="button"
-          onClick={() => loadHistory(true)}
-          disabled={refreshing}
-          aria-label="Refresh recycle history"
-          className="shrink-0 rounded-xl border border-gray-200 p-3 transition hover:bg-gray-100 disabled:opacity-50"
+          onClick={() => navigate('/profile')}
+          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500"
         >
-          <RefreshCw
-            size={19}
-            className={refreshing ? 'animate-spin' : ''}
-          />
+          <ArrowLeft size={18} />
+          Back to Profile
         </button>
+
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="mb-2 flex items-center gap-2">
+              <Recycle size={25} className="text-green-600" />
+              <h2 className="text-2xl font-bold text-gray-900">
+                Recycled Items
+              </h2>
+            </div>
+
+            <p className="text-sm text-gray-500">
+              Your recycled items, activity history, rewards, and environmental impact.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => loadHistory(true)}
+            disabled={refreshing}
+            aria-label="Refresh recycled items"
+            className="shrink-0 rounded-xl border border-gray-200 p-3 transition hover:bg-gray-100 disabled:opacity-50"
+          >
+            <RefreshCw
+              size={19}
+              className={refreshing ? 'animate-spin' : ''}
+            />
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -192,7 +206,7 @@ export default function RecycleHistory({ userId }) {
 
           <div className="flex-1">
             <p className="font-medium text-red-800">
-              Could not load recycle history
+              Could not load recycled items
             </p>
 
             <p className="mt-1 text-sm text-red-700">
