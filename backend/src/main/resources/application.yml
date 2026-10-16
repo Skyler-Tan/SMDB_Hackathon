@@ -5,20 +5,19 @@ spring:
   data:
     mongodb:
       uri: ${MONGODB_URI:mongodb://localhost:27017/threer}
-
   servlet:
     multipart:
       max-file-size: 8MB
       max-request-size: 8MB
 
 threer:
-  default-user-id: local-user
+  default-user-id: ${THREER_DEFAULT_USER_ID:local-user}
 
 groq:
-  api-key: ${api-key}
+  api-key: $[groq_api_key]
 
 tavily:
-  api-key:  ${tavily}
+  api-key: $[tavily_api_key]
 
 locationiq:
-  api-key: ${location-iq}
+  api-key: $[locationiq_api_key]

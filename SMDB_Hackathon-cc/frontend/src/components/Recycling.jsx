@@ -15,15 +15,22 @@ export default function Recycling({ itemId, userId, onClose }) {
   }, [itemId]);
 
   const loadRecyclingInfo = async () => {
-    try {
-      const response = await scanApi.loadRecycling(itemId);
-      setData(response.data);
-    } catch (err) {
-      console.error('Failed to load recycling info:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  try {
+    console.log('Loading recycling info for item:', itemId);
+    console.log('Calling POST /api/recycling/' + itemId);
+
+    const response = await scanApi.loadRecycling(itemId);
+
+    console.log('Recycling API response:', response.data);
+    setData(response.data);
+  } catch (err) {
+    console.error('Failed to load recycling info:', err);
+    console.error('Response status:', err.response?.status);
+    console.error('Response data:', err.response?.data);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleConfirmRecycle = async () => {
     setRecycling(true);

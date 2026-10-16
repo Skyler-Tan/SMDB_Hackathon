@@ -1,4 +1,3 @@
-
 package com.threer.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -39,6 +38,9 @@ public class GroqVisionService {
                 .build();
     }
 
+    /**
+     * Identifies an object and, where applicable, its packaging material.
+     */
     public VisionResult analyzeImage(String imageDataUri) {
         try {
             if (imageDataUri == null || imageDataUri.isBlank()) {
@@ -55,21 +57,76 @@ public class GroqVisionService {
             }
 
             String prompt = """
-                    Identify the main real-world item in this image.
+                    Identify the main physical object or product in this image.
 
-                    Read visible product names, brand and size when possible.
-                    Do not invent details. Use "unknown" when uncertain.
-                    Identify the likely main material.
+                    CRITICAL: IDENTIFY THE PHYSICAL MATERIAL CORRECTLY.
 
-                    Return valid JSON only:
+                    The "material" field must describe the material of the
+                    physical object or its packaging, NOT the contents inside it.
+
+                    Examples:
+                    - Seaweed snacks inside a plastic packet:
+                      name = "Seaweed snacks"
+                      material = "plastic"
+                      container = "plastic packet"
+
+                    - Biscuits inside a plastic wrapper:
+                      name = "Biscuits"
+                      material = "plastic"
+                      container = "plastic wrapper"
+
+                    - A drink inside a glass bottle:
+                      name = "Drink bottle"
+                      material = "glass"
+                      container = "glass bottle"
+
+                    - A drink inside an aluminium can:
+                      name = "Drink can"
+                      material = "metal"
+                      container = "metal can"
+
+                    - A product inside a cardboard box:
+                      name = "Product box"
+                      material = "cardboard"
+                      container = "cardboard box"
+
+                    - A standalone camera lens:
+                      name = "Camera lens"
+                      material = "mixed materials" if multiple materials
+                      are visibly present; otherwise identify the main
+                      visible structural material or use "unknown".
+
+                    MATERIAL RULES:
+                    1. Do not return "seaweed" for the packaging material
+                       just because the package contains seaweed.
+                    2. Do not return "food", "liquid", or other contents
+                       as the packaging material.
+                    3. Inspect the visible wrapper, bag, bottle, jar,
+                       box, can, or other container.
+                    4. If the user photographs a standalone object rather
+                       than packaging, identify the object's main material.
+                    5. If multiple materials are visibly important, use
+                       "mixed materials".
+                    6. Never claim a material is certain when it cannot
+                       reasonably be determined from the image.
+                    7. Use "unknown" if the material is not visually clear.
+                    8. Do not assume all food packaging is plastic.
+                    9. Do not invent brand names, sizes, or product details.
+                    10. Keep the item name short and descriptive.
+
+                    Read the visible brand and size when possible.
+                    The container field describes the physical packaging
+                    or object type, not its contents.
+
+                    Return valid JSON only, without Markdown fences:
                     {
-                      "name": "item name",
+                      "name": "item or product name",
                       "brand": "brand or unknown",
                       "size": "size or unknown",
-                      "container": "container type or unknown",
-                      "material": "main material or unknown",
+                      "container": "visible container or object type",
+                      "material": "physical packaging or object material",
                       "confidence": 0.0,
-                      "description": "short description"
+                      "description": "short description of the visible object"
                     }
 
                     Confidence must be between 0 and 1.
@@ -113,24 +170,36 @@ public class GroqVisionService {
             String size = result.path("size").asText("unknown");
             String container = result.path("container").asText("unknown");
             String material = result.path("material").asText("unknown");
+
             double confidence = clamp(
                     result.path("confidence").asDouble(0.0)
             );
+
             String description = result.path("description").asText("");
 
             System.out.println("Identified item: " + name);
-            System.out.println("Material: " + material);
+            System.out.println("Brand: " + brand);
+            System.out.println("Container: " + container);
+            System.out.println("Packaging/object material: " + material);
+            System.out.println("Confidence: " + confidence);
 
             return new VisionResult(
-                    name, brand, size, container,
-                    material, confidence, description
+                    name,
+                    brand,
+                    size,
+                    container,
+                    material,
+                    confidence,
+                    description
             );
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+
             throw new IllegalStateException(
                     "Vision request was interrupted.", e
             );
+
         } catch (Exception e) {
             throw new IllegalStateException(
                     "Groq vision request failed: " + e.getMessage(), e
@@ -138,6 +207,9 @@ public class GroqVisionService {
         }
     }
 
+    /**
+     * Verifies recycling information against the supplied web search results.
+     */
     public RecyclingResult verifyRecycling(
             VisionResult item,
             List<TavilySearchService.SearchResult> searchResults) {
@@ -149,18 +221,32 @@ public class GroqVisionService {
 
             StringBuilder sources = new StringBuilder();
 
-            for (int i = 0; i < searchResults.size(); i++) {
-                TavilySearchService.SearchResult result = searchResults.get(i);
+            if (searchResults != null) {
+                for (int i = 0; i < searchResults.size(); i++) {
+                    TavilySearchService.SearchResult result =
+                            searchResults.get(i);
 
-                sources.append("\nSOURCE ").append(i + 1)
-                        .append("\nTITLE: ").append(result.title())
-                        .append("\nURL: ").append(result.url())
-                        .append("\nCONTENT: ").append(result.content())
-                        .append("\n");
+                    sources.append("\nSOURCE ").append(i + 1)
+                            .append("\nTITLE: ").append(result.title())
+                            .append("\nURL: ").append(result.url())
+                            .append("\nCONTENT: ").append(result.content())
+                            .append("\n");
+                }
+            }
+
+            if (sources.isEmpty()) {
+                return new RecyclingResult(
+                        false,
+                        "unknown",
+                        "Check with your local recycling provider.",
+                        "No web search evidence was available.",
+                        0.0
+                );
             }
 
             String prompt = """
-                    Verify recycling information for an application in Malaysia.
+                    Verify whether the following physical item can be
+                    recycled in Malaysia using the supplied web sources.
 
                     ITEM: %s
                     BRAND: %s
@@ -172,14 +258,22 @@ public class GroqVisionService {
                     WEB SOURCES:
                     %s
 
-                    Rules:
-                    - Prefer official and Malaysia-specific evidence.
-                    - Do not assume overseas acceptance applies in Malaysia.
-                    - If evidence is insufficient or conflicting, use false and unknown.
-                    - Consider contamination where supported by the evidence.
-                    - Allowed bin values: plastic, glass, paper, metal, e-waste,
-                      other, unknown.
-                    - Return valid JSON only.
+                    RULES:
+                    1. Prefer official Malaysian government, municipal,
+                       waste-management, or recycling-provider sources.
+                    2. Do not assume overseas recycling rules apply in Malaysia.
+                    3. Do not treat search-result snippets as proof if they
+                       do not actually support the recycling decision.
+                    4. If evidence is insufficient or conflicting, return
+                       recyclable=false and bin="unknown".
+                    5. Do not assume an item is accepted merely because its
+                       material is theoretically recyclable.
+                    6. Consider local collection restrictions and contamination
+                       only when supported by the available evidence.
+                    7. Allowed bin values: plastic, glass, paper, metal,
+                       e-waste, other, unknown.
+                    8. The bin must match the identified physical material.
+                    9. Return valid JSON only, without Markdown fences.
 
                     {
                       "recyclable": false,
@@ -195,13 +289,16 @@ public class GroqVisionService {
                     safe(item.container()),
                     safe(item.material()),
                     safe(item.description()),
-                    sources
+                    sources.toString()
             );
 
             Map<String, Object> requestBody = Map.of(
                     "model", MODEL,
                     "messages", new Object[]{
-                            Map.of("role", "user", "content", prompt)
+                            Map.of(
+                                    "role", "user",
+                                    "content", prompt
+                            )
                     },
                     "temperature", 0.1,
                     "max_tokens", 350
@@ -221,24 +318,32 @@ public class GroqVisionService {
             String bin = result.path("bin").asText("unknown");
             String instructions = result.path("instructions").asText("");
             String reason = result.path("reason").asText("");
+
             double confidence = clamp(
                     result.path("confidence").asDouble(0.0)
             );
 
             String material = safe(item.material()).toLowerCase();
-            String normalizedBin = bin.toLowerCase();
+            String normalizedBin = safe(bin).toLowerCase();
 
             boolean materialBinConflict =
-                    (material.contains("plastic") && normalizedBin.contains("glass"))
-                    || (material.contains("glass") && normalizedBin.contains("plastic"))
-                    || (material.contains("paper") && normalizedBin.contains("glass"))
-                    || (material.contains("glass") && normalizedBin.contains("paper"));
+                    (material.contains("plastic")
+                            && normalizedBin.equals("glass"))
+                    || (material.contains("glass")
+                            && normalizedBin.equals("plastic"))
+                    || ((material.contains("paper")
+                            || material.contains("cardboard"))
+                            && normalizedBin.equals("glass"))
+                    || (material.contains("glass")
+                            && normalizedBin.equals("paper"));
 
             if (materialBinConflict) {
                 recyclable = false;
                 bin = "unknown";
-                instructions = "Recycling information could not be verified.";
-                reason = "The identified material conflicts with the suggested bin.";
+                instructions =
+                        "Recycling information could not be verified.";
+                reason =
+                        "The identified material conflicts with the suggested bin.";
                 confidence = 0.0;
             }
 
@@ -276,9 +381,14 @@ public class GroqVisionService {
 
             System.out.println("Recyclable: " + recyclable);
             System.out.println("Bin: " + bin);
+            System.out.println("Verification confidence: " + confidence);
 
             return new RecyclingResult(
-                    recyclable, bin, instructions, reason, confidence
+                    recyclable,
+                    bin,
+                    instructions,
+                    reason,
+                    confidence
             );
 
         } catch (InterruptedException e) {
@@ -307,6 +417,9 @@ public class GroqVisionService {
         }
     }
 
+    /**
+     * Sends a request to Groq, retrying rate-limit and server errors.
+     */
     private JsonNode sendRequest(String json) throws Exception {
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -366,8 +479,15 @@ public class GroqVisionService {
                     .orElse("");
 
             if (!retryAfter.isBlank()) {
-                return Math.min(30, Math.max(1,
-                        (long) Math.ceil(Double.parseDouble(retryAfter))));
+                return Math.min(
+                        30,
+                        Math.max(
+                                1,
+                                (long) Math.ceil(
+                                        Double.parseDouble(retryAfter)
+                                )
+                        )
+                );
             }
 
             String reset = response.headers()
@@ -379,11 +499,14 @@ public class GroqVisionService {
                         reset.substring(0, reset.length() - 1)
                 );
 
-                return Math.min(30, Math.max(1,
-                        (long) Math.ceil(seconds)));
+                return Math.min(
+                        30,
+                        Math.max(1, (long) Math.ceil(seconds))
+                );
             }
+
         } catch (Exception ignored) {
-            // Fall back to a short delay.
+            // Use the default delay if the headers cannot be parsed.
         }
 
         return Math.min(15, attempt * 5L);
@@ -425,7 +548,9 @@ public class GroqVisionService {
     }
 
     private String safe(String value) {
-        return value == null || value.isBlank() ? "unknown" : value.trim();
+        return value == null || value.isBlank()
+                ? "unknown"
+                : value.trim();
     }
 
     private double clamp(double value) {
@@ -439,7 +564,8 @@ public class GroqVisionService {
             String container,
             String material,
             double confidence,
-            String description) {
+            String description
+    ) {
     }
 
     public record RecyclingResult(
@@ -447,6 +573,7 @@ public class GroqVisionService {
             String bin,
             String instructions,
             String reason,
-            double confidence) {
+            double confidence
+    ) {
     }
 }

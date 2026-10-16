@@ -15,3 +15,23 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* App-wide dark mode: preserve existing Tailwind component styling while applying readable dark surfaces. */
+.app-shell.dark-mode { color: #e5e7eb; background-color: #021e25; }
+.dark-mode .bg-white { background-color: #111827 !important; }
+.dark-mode .bg-gray-50 { background-color: #1f2937 !important; }
+.dark-mode .bg-gray-100 { background-color: #1f2937 !important; }
+.dark-mode .text-gray-900, .dark-mode .text-gray-800 { color: #f3f4f6 !important; }
+.dark-mode .text-gray-700, .dark-mode .text-gray-600 { color: #d1d5db !important; }
+.dark-mode .text-gray-500, .dark-mode .text-gray-400 { color: #9ca3af !important; }
+.dark-mode .border-gray-100, .dark-mode .border-gray-200, .dark-mode .border-gray-300 { border-color: #374151 !important; }
+.dark-mode input, .dark-mode textarea, .dark-mode select { color: #f3f4f6; background-color: #111827; border-color: #4b5563; }
+.dark-mode input::placeholder, .dark-mode textarea::placeholder { color: #9ca3af; }
+.dark-mode nav { background-color: #111827 !important; border-color: #374151 !important; }
+.dark-mode .hover\:bg-gray-100:hover { background-color: #374151 !important; }
+.dark-mode .bg-green-50 { background-color: #052e24 !important; }
+.dark-mode .text-green-800, .dark-mode .text-green-900 { color: #bbf7d0 !important; }
+.dark-mode .text-green-700 { color: #86efac !important; }
+.dark-mode .bg-amber-50 { background-color: #422006 !important; }
+.dark-mode .bg-blue-50 { background-color: #172554 !important; }
+.dark-mode .bg-purple-100 { background-color: #3b0764 !important; }

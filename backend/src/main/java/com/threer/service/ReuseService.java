@@ -1,57 +1,32 @@
 
 package com.threer.service;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.threer.dto.ReuseRequest;
 import com.threer.dto.ReuseResponse;
 import com.threer.model.ScannedItem;
 import com.threer.repository.ScannedItemRepository;
-
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
 public class ReuseService {
 
-    private static final String API_URL =
-            "https://api.groq.com/openai/v1/chat/completions";
-
-    private static final String MODEL = "qwen/qwen3.8-27b";
-    private static final int MAX_GENERATION_ATTEMPTS = 2;
-
-    private final ObjectMapper objectMapper;
-    private final HttpClient httpClient;
     private final TavilySearchService tavilySearchService;
     private final ScannedItemRepository scannedItemRepository;
 
-    @Value("${groq.api-key}")
-    private String apiKey;
-
     public ReuseService(
-            ObjectMapper objectMapper,
             TavilySearchService tavilySearchService,
-            ScannedItemRepository scannedItemRepository
-    ) {
-        this.objectMapper = objectMapper;
+            ScannedItemRepository scannedItemRepository) {
         this.tavilySearchService = tavilySearchService;
         this.scannedItemRepository = scannedItemRepository;
-
-        this.httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(20))
-                .build();
     }
 
     public ReuseResponse generateIdeas(ReuseRequest request) {
@@ -75,475 +50,336 @@ public class ReuseService {
         if (!item.isIdentificationConfirmed()) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Please confirm the item's identification before generating DIY ideas."
+                    "Please confirm the item's identification before generating reuse ideas."
             );
         }
 
         if (item.getName() == null || item.getName().isBlank()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "The confirmed item has no name. Please correct its identification first."
+                    "The confirmed item has no name."
             );
         }
 
-        // Always use the saved, confirmed item details.
-        // Do not trust the name/material supplied by the frontend.
-        String difficulty = normalizeDifficulty(request.getDifficulty());
-        String prompt = buildPrompt(item, difficulty);
+        System.out.println("========== TAVILY REUSE ==========");
+        System.out.println("Item: " + item.getName());
+        System.out.println("Material: " + safe(item.getMaterial()));
+        System.out.println("Searching all difficulties.");
 
-        try {
-            List<ReuseResponse.DiyIdea> ideas = new ArrayList<>();
+        List<ReuseResponse.DiyIdea> ideas = new ArrayList<>();
 
-            for (int attempt = 1;
-                 attempt <= MAX_GENERATION_ATTEMPTS;
-                 attempt++) {
+        // Generate a separate set of results for each difficulty.
+        for (String difficulty : List.of("Easy", "Medium", "Hard")) {
+            System.out.println("Searching difficulty: " + difficulty);
 
-                System.out.println("========== GROQ REUSE ==========");
-                System.out.println("Confirmed item: " + item.getName());
-                System.out.println("Item ID: " + item.getId());
-                System.out.println("Difficulty: " + difficulty);
-                System.out.println(
-                        "Generation attempt: " + attempt + "/"
-                                + MAX_GENERATION_ATTEMPTS
-                );
+            List<TavilySearchService.SearchResult> projects =
+                    findProjects(item, difficulty);
 
-                JsonNode root = sendGroqRequest(
-                        buildRequestBody(prompt, attempt)
-                );
+            List<TavilySearchService.SearchResult> videos =
+                    findYoutubeVideos(item, difficulty);
 
-                String finishReason = root.path("choices")
-                        .path(0)
-                        .path("finish_reason")
-                        .asText("");
+            int added = 0;
 
-                String content = root.path("choices")
-                        .path(0)
-                        .path("message")
-                        .path("content")
-                        .asText("");
+            for (TavilySearchService.SearchResult project : projects) {
+                if (added >= 3) {
+                    break;
+                }
 
-                if (content.isBlank()) {
-                    System.err.println("Groq returned empty content.");
+                if (project.title() == null || project.title().isBlank()
+                        || project.url() == null || project.url().isBlank()
+                        || isYoutubeUrl(project.url())) {
                     continue;
                 }
 
-                if ("length".equalsIgnoreCase(finishReason)) {
-                    System.err.println(
-                            "Groq reached its output token limit."
-                    );
-                    continue;
-                }
+                String videoUrl = findMatchingVideoUrl(videos, project);
 
-                try {
-                    JsonNode result = objectMapper.readTree(
-                            cleanJson(content)
-                    );
+                List<String> steps = extractSteps(project.content());
 
-                    ideas = parseIdeas(result, difficulty);
-
-                    if (!ideas.isEmpty()) {
-                        break;
-                    }
-
-                    System.err.println(
-                            "Groq returned JSON without valid DIY ideas."
-                    );
-
-                } catch (JsonProcessingException e) {
-                    System.err.println(
-                            "Groq returned invalid or incomplete JSON: "
-                                    + e.getOriginalMessage()
-                    );
-                }
-
-                if (attempt < MAX_GENERATION_ATTEMPTS) {
-                    System.out.println(
-                            "Retrying DIY generation with a larger "
-                                    + "output allowance..."
-                    );
-                }
-            }
-
-            if (ideas.isEmpty()) {
-                throw new IllegalStateException(
-                        "Groq could not generate valid DIY ideas after "
-                                + MAX_GENERATION_ATTEMPTS
-                                + " attempts. Please try again."
-                );
-            }
-
-            // Tavily is optional here and searches for tutorials only.
-            List<TavilySearchService.SearchResult> tutorialResults =
-                    findTutorials(item);
-
-            List<ReuseResponse.DiyIdea> enrichedIdeas = new ArrayList<>();
-
-            for (int i = 0; i < ideas.size(); i++) {
-                ReuseResponse.DiyIdea idea = ideas.get(i);
-
-                TutorialInfo tutorial =
-                        chooseTutorial(tutorialResults, i);
-
-                enrichedIdeas.add(new ReuseResponse.DiyIdea(
-                        idea.title(),
+                ideas.add(new ReuseResponse.DiyIdea(
+                        project.title().trim(),
                         difficulty,
-                        idea.summary(),
-                        idea.finalProduct(),
-                        idea.materials(),
-                        idea.tools(),
-                        idea.steps(),
-                        tutorial.tutorialTitle(),
-                        tutorial.tutorialUrl(),
-                        tutorial.sourceTitle(),
-                        tutorial.sourceUrl()
+                        safeSummary(project.content()),
+                        project.title().trim(),
+                        buildMaterials(item),
+                        List.of(),
+                        steps,
+                        videoUrl == null ? null : "YouTube video tutorial",
+                        videoUrl,
+                        project.title().trim(),
+                        project.url().trim()
                 ));
+
+                added++;
             }
 
             System.out.println(
-                    "DIY ideas generated: " + enrichedIdeas.size()
-            );
-            System.out.println("========== REUSE COMPLETE ==========");
-
-            return new ReuseResponse(difficulty, enrichedIdeas);
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException(
-                    "Reuse generation was interrupted.", e
-            );
-        } catch (Exception e) {
-            System.err.println(
-                    "Reuse generation failed: " + e.getMessage()
-            );
-
-            throw new IllegalStateException(
-                    "Could not generate reuse ideas: " + e.getMessage(), e
+                    difficulty + " ideas added: " + added
             );
         }
+
+        System.out.println("Total reuse ideas: " + ideas.size());
+        System.out.println("========== REUSE COMPLETE ==========");
+
+        if (ideas.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "No suitable reuse projects were found. Please try again later."
+            );
+        }
+
+        // "All" indicates that the response contains all three difficulty levels.
+        return new ReuseResponse("All", ideas);
     }
 
-    private String buildRequestBody(String prompt, int attempt)
-            throws JsonProcessingException {
+    private List<TavilySearchService.SearchResult> findProjects(
+            ScannedItem item,
+            String difficulty) {
 
-        int maxTokens = attempt == 1 ? 1200 : 1800;
+        String name = safe(item.getName());
+        String material = safe(item.getMaterial());
 
-        Map<String, Object> body = Map.of(
-                "model", MODEL,
-                "messages", List.of(
-                        Map.of(
-                                "role", "system",
-                                "content", "You generate practical DIY reuse "
-                                        + "ideas. Follow the requested JSON "
-                                        + "structure exactly."
-                        ),
-                        Map.of("role", "user", "content", prompt)
-                ),
-                "temperature", 0.2,
-                "max_tokens", maxTokens,
-                "response_format", Map.of("type", "json_object")
+        List<String> queries = List.of(
+                name + " DIY upcycling reuse project " + difficulty
+                        + " step by step",
+                "creative ways to reuse " + name + " "
+                        + difficulty + " DIY instructions",
+                name + " " + material
+                        + " upcycle craft project tutorial"
         );
 
-        return objectMapper.writeValueAsString(body);
-    }
+        Map<String, TavilySearchService.SearchResult> unique =
+                new LinkedHashMap<>();
 
-    private JsonNode sendGroqRequest(String json) throws Exception {
+        for (String query : queries) {
+            searchAndCollect(query, unique);
+        }
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(API_URL))
-                .timeout(Duration.ofSeconds(90))
-                .header("Authorization", "Bearer " + apiKey)
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(json))
-                .build();
+        List<TavilySearchService.SearchResult> relevant = new ArrayList<>();
 
-        synchronized (GroqVisionService.GROQ_REQUEST_LOCK) {
-
-            for (int attempt = 1; attempt <= 3; attempt++) {
-
-                HttpResponse<String> response = httpClient.send(
-                        request,
-                        HttpResponse.BodyHandlers.ofString()
-                );
-
-                int status = response.statusCode();
-
-                System.out.println("Groq reuse HTTP status: " + status);
-
-                if (status >= 200 && status < 300) {
-                    return objectMapper.readTree(response.body());
-                }
-
-                boolean retryable = status == 429 || status >= 500;
-
-                if (!retryable || attempt == 3) {
-                    throw new IllegalStateException(
-                            "Groq reuse request failed: HTTP "
-                                    + status + " " + response.body()
-                    );
-                }
-
-                long waitSeconds = retryDelaySeconds(response, attempt);
-
-                System.out.println(
-                        "Groq request temporarily failed. Retrying in "
-                                + waitSeconds + " seconds."
-                );
-
-                Thread.sleep(waitSeconds * 1000L);
+        for (TavilySearchService.SearchResult result : unique.values()) {
+            if (!isYoutubeUrl(result.url()) && isRelevant(result, item)) {
+                relevant.add(result);
             }
         }
 
-        throw new IllegalStateException("Groq reuse request failed.");
+        return relevant;
     }
 
-    private long retryDelaySeconds(
-            HttpResponse<?> response,
-            int attempt
-    ) {
-        try {
-            String retryAfter =
-                    response.headers().firstValue("Retry-After").orElse("");
+    private List<TavilySearchService.SearchResult> findYoutubeVideos(
+            ScannedItem item,
+            String difficulty) {
 
-            if (!retryAfter.isBlank()) {
-                return Math.min(30, Math.max(1,
-                        (long) Math.ceil(Double.parseDouble(retryAfter))));
-            }
+        String name = safe(item.getName());
 
-            String reset = response.headers()
-                    .firstValue("x-ratelimit-reset-tokens")
-                    .orElse("");
-
-            if (reset.endsWith("s")) {
-                double seconds = Double.parseDouble(
-                        reset.substring(0, reset.length() - 1)
-                );
-
-                return Math.min(30, Math.max(1,
-                        (long) Math.ceil(seconds)));
-            }
-        } catch (Exception ignored) {
-            // Use the fallback delay.
-        }
-
-        return Math.min(15, attempt * 5L);
-    }
-
-    private String buildPrompt(ScannedItem item, String difficulty) {
-
-        return """
-                Generate exactly 3 practical DIY REUSE ideas for this item.
-                Do not suggest recycling.
-
-                Item: %s
-                Brand: %s
-                Size: %s
-                Container: %s
-                Material: %s
-                Required difficulty: %s
-
-                Requirements:
-                - Every idea must match the requested difficulty.
-                - Reuse the actual item and make the ideas different.
-                - Keep projects cheap, practical and realistic.
-                - Easy uses simple tools; Medium uses basic tools;
-                  Hard involves more construction.
-                - Include 3 or 4 short, ordered steps per idea.
-                - Use no more than 4 materials and 3 tools per idea.
-                - Keep the summary and final product description to one
-                  short sentence each.
-                - Avoid burning, melting, dangerous chemicals and unsafe uses.
-                - Clean and dry packaging before reuse.
-                - Do not invent brand features.
-                - Return a JSON object with an "ideas" array.
-                - Return JSON only, with no Markdown or extra commentary.
-                - Include all required fields for all 3 ideas.
-
-                Required JSON structure:
-                {
-                  "ideas": [
-                    {
-                      "title": "Short title",
-                      "difficulty": "%s",
-                      "summary": "Short explanation",
-                      "finalProduct": "Finished product description",
-                      "materials": ["material"],
-                      "tools": ["tool"],
-                      "steps": ["Step 1", "Step 2", "Step 3"]
-                    }
-                  ]
-                }
-                """.formatted(
-                safe(item.getName()),
-                safe(item.getBrand()),
-                safe(item.getSize()),
-                safe(item.getContainer()),
-                safe(item.getMaterial()),
-                difficulty,
-                difficulty
+        List<String> queries = List.of(
+                "site:youtube.com/watch DIY upcycle " + name
+                        + " " + difficulty + " tutorial",
+                "site:youtu.be " + name
+                        + " reuse DIY " + difficulty + " tutorial"
         );
-    }
 
-    private List<ReuseResponse.DiyIdea> parseIdeas(
-            JsonNode root,
-            String requestedDifficulty
-    ) {
-        List<ReuseResponse.DiyIdea> ideas = new ArrayList<>();
-        JsonNode array = root.path("ideas");
+        Map<String, TavilySearchService.SearchResult> unique =
+                new LinkedHashMap<>();
 
-        if (!array.isArray()) {
-            return ideas;
+        for (String query : queries) {
+            searchAndCollect(query, unique);
         }
 
-        for (JsonNode idea : array) {
-            String title = idea.path("title").asText("").trim();
-            String returnedDifficulty =
-                    idea.path("difficulty").asText("");
+        List<TavilySearchService.SearchResult> videos = new ArrayList<>();
 
-            if (title.isBlank()
-                    || !returnedDifficulty.equalsIgnoreCase(
-                            requestedDifficulty)) {
-                continue;
+        for (TavilySearchService.SearchResult result : unique.values()) {
+            if (isYoutubeUrl(result.url())) {
+                videos.add(result);
             }
-
-            List<String> steps = readStringArray(idea.path("steps"));
-
-            if (steps.isEmpty()) {
-                continue;
-            }
-
-            ideas.add(new ReuseResponse.DiyIdea(
-                    title,
-                    requestedDifficulty,
-                    idea.path("summary").asText(""),
-                    idea.path("finalProduct").asText(""),
-                    readStringArray(idea.path("materials")),
-                    readStringArray(idea.path("tools")),
-                    steps,
-                    "",
-                    "",
-                    "",
-                    ""
-            ));
         }
 
-        return ideas;
+        return videos;
     }
 
-    private List<TavilySearchService.SearchResult> findTutorials(
-            ScannedItem item
-    ) {
+    private void searchAndCollect(
+            String query,
+            Map<String, TavilySearchService.SearchResult> results) {
+
         try {
-            String query = safe(item.getName()) + " "
-                    + safe(item.getMaterial())
-                    + " DIY reuse project tutorial";
+            System.out.println("Tavily query: " + query);
 
-            System.out.println("Searching DIY tutorials: " + query);
-
-            List<TavilySearchService.SearchResult> results =
+            List<TavilySearchService.SearchResult> found =
                     tavilySearchService.searchGeneral(query);
 
-            return results == null ? List.of() : results;
+            if (found == null) {
+                return;
+            }
 
+            for (TavilySearchService.SearchResult result : found) {
+                if (result == null || result.url() == null
+                        || result.url().isBlank()) {
+                    continue;
+                }
+
+                results.putIfAbsent(result.url().trim(), result);
+            }
         } catch (Exception e) {
             System.err.println(
-                    "Optional tutorial search failed: " + e.getMessage()
+                    "Tavily query failed: " + query
+                            + " | " + e.getMessage()
             );
-
-            return List.of();
         }
     }
 
-    private TutorialInfo chooseTutorial(
-            List<TavilySearchService.SearchResult> results,
-            int ideaIndex
-    ) {
-        if (results.isEmpty()) {
-            return emptyTutorial();
-        }
+    private boolean isRelevant(
+            TavilySearchService.SearchResult result,
+            ScannedItem item) {
 
-        int index = Math.min(ideaIndex, results.size() - 1);
+        String text = (
+                safe(result.title()) + " " + safe(result.content())
+        ).toLowerCase(Locale.ROOT);
 
-        for (TavilySearchService.SearchResult result : results) {
-            String url = result.url();
+        String itemName = safe(item.getName())
+                .toLowerCase(Locale.ROOT);
 
-            if (url != null && (
-                    url.contains("youtube.com/watch")
-                    || url.contains("youtu.be/"))) {
-                return new TutorialInfo(
-                        result.title(),
-                        url,
-                        result.title(),
-                        url
-                );
+        String material = safe(item.getMaterial())
+                .toLowerCase(Locale.ROOT);
+
+        // Prefer results mentioning the actual item.
+        String[] words = itemName.split("[^a-z0-9]+");
+        int matchedWords = 0;
+
+        for (String word : words) {
+            if (word.length() >= 3 && text.contains(word)) {
+                matchedWords++;
             }
         }
 
-        TavilySearchService.SearchResult result = results.get(index);
+        if (matchedWords > 0) {
+            return true;
+        }
 
-        return new TutorialInfo(
-                result.title(),
-                result.url(),
-                result.title(),
-                result.url()
-        );
+        // Material alone is a weaker match, so require a DIY/reuse context.
+        boolean materialMatches = !material.equals("unknown")
+                && text.contains(material);
+
+        boolean diyContext = text.contains("reuse")
+                || text.contains("upcycl")
+                || text.contains("diy")
+                || text.contains("craft")
+                || text.contains("project");
+
+        return materialMatches && diyContext;
     }
 
-    private TutorialInfo emptyTutorial() {
-        return new TutorialInfo("", "", "", "");
-    }
+    private String findMatchingVideoUrl(
+            List<TavilySearchService.SearchResult> videos,
+            TavilySearchService.SearchResult project) {
 
-    private List<String> readStringArray(JsonNode node) {
-        List<String> values = new ArrayList<>();
+        if (videos == null || videos.isEmpty()) {
+            return null;
+        }
 
-        if (node.isArray()) {
-            for (JsonNode value : node) {
-                String text = value.asText("").trim();
+        // Prefer a video whose title shares words with the project title.
+        String projectTitle = safe(project.title())
+                .toLowerCase(Locale.ROOT);
 
-                if (!text.isBlank()) {
-                    values.add(text);
+        for (TavilySearchService.SearchResult video : videos) {
+            String videoTitle = safe(video.title())
+                    .toLowerCase(Locale.ROOT);
+
+            for (String word : projectTitle.split("[^a-z0-9]+")) {
+                if (word.length() >= 4 && videoTitle.contains(word)) {
+                    return video.url();
                 }
             }
         }
 
-        return values;
+        // The search was specifically for this item and difficulty.
+        return videos.get(0).url();
     }
 
-    private String normalizeDifficulty(String difficulty) {
-        if (difficulty != null) {
-            if (difficulty.equalsIgnoreCase("medium")) return "Medium";
-            if (difficulty.equalsIgnoreCase("hard")) return "Hard";
+    private boolean isYoutubeUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return false;
         }
 
-        return "Easy";
+        try {
+            String host = URI.create(url.trim())
+                    .getHost();
+
+            if (host == null) {
+                return false;
+            }
+
+            host = host.toLowerCase(Locale.ROOT);
+
+            return host.equals("youtube.com")
+                    || host.endsWith(".youtube.com")
+                    || host.equals("youtu.be")
+                    || host.endsWith(".youtu.be");
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private List<String> extractSteps(String content) {
+        List<String> steps = new ArrayList<>();
+
+        if (content == null || content.isBlank()) {
+            return steps;
+        }
+
+        String normalized = content.trim()
+                .replaceAll("\\s+", " ");
+
+        // Keep every usable sentence supplied in the search result.
+        String[] sentences = normalized.split("(?<=[.!?])\\s+");
+
+        for (String sentence : sentences) {
+            String step = sentence.trim();
+
+            if (step.length() < 15) {
+                continue;
+            }
+
+            if (steps.stream().noneMatch(
+                    existing -> existing.equalsIgnoreCase(step))) {
+                steps.add(step);
+            }
+        }
+
+        return steps;
+    }
+
+    private String safeSummary(String content) {
+        if (content == null || content.isBlank()) {
+            return "Open the source link for project information and instructions.";
+        }
+
+        String summary = content.trim().replaceAll("\\s+", " ");
+
+        if (summary.length() > 300) {
+            return summary.substring(0, 297).trim() + "...";
+        }
+
+        return summary;
+    }
+
+    private List<String> buildMaterials(ScannedItem item) {
+        List<String> materials = new ArrayList<>();
+
+        String name = safe(item.getName());
+        String material = safe(item.getMaterial());
+
+        materials.add(name);
+
+        if (!material.equals("unknown")
+                && !material.equalsIgnoreCase(name)) {
+            materials.add(material);
+        }
+
+        return materials;
     }
 
     private String safe(String value) {
         return value == null || value.isBlank()
                 ? "unknown"
                 : value.trim();
-    }
-
-    private String cleanJson(String text) {
-        String clean = text.trim();
-
-        if (clean.startsWith("```json")) {
-            clean = clean.substring(7);
-        } else if (clean.startsWith("```")) {
-            clean = clean.substring(3);
-        }
-
-        if (clean.endsWith("```")) {
-            clean = clean.substring(0, clean.length() - 3);
-        }
-
-        return clean.trim();
-    }
-
-    private record TutorialInfo(
-            String tutorialTitle,
-            String tutorialUrl,
-            String sourceTitle,
-            String sourceUrl
-    ) {
     }
 }

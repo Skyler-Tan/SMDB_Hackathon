@@ -1,10 +1,10 @@
-
 package com.threer.service;
 
 import com.threer.dto.ScanRequest;
 import com.threer.dto.ScanResponse;
 import com.threer.model.ScannedItem;
 import com.threer.repository.ScannedItemRepository;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -12,9 +12,13 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class ScanService {
+
+    private static final long RECYCLING_TIMEOUT_SECONDS = 10;
 
     private final GroqVisionService visionService;
     private final TavilySearchService tavilySearchService;
@@ -36,12 +40,10 @@ public class ScanService {
         this.conditionService = conditionService;
     }
 
-    /**
-     * Identifies an item using Groq Vision.
-     * High-confidence results are automatically confirmed.
-     * Lower-confidence results require user confirmation.
-     */
+    // Identify and save an item.
+    // Never automatically confirm identification based on AI confidence.
     public ScanResponse scan(ScanRequest request) {
+
         if (request == null
                 || request.getImage() == null
                 || request.getImage().isBlank()) {
@@ -51,101 +53,152 @@ public class ScanService {
             );
         }
 
-        GroqVisionService.VisionResult vision =
-                visionService.analyzeImage(request.getImage());
+        GroqVisionService.VisionResult vision;
 
+        try {
+            System.out.println("========== GROQ VISION ==========");
+
+            vision = visionService.analyzeImage(request.getImage());
+
+        } catch (ResponseStatusException e) {
+            throw e;
+        } catch (Exception e) {
+            System.err.println(
+                    "Groq identification failed: " + e.getMessage()
+            );
+
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Unable to identify this item. Please try again."
+            );
+        }
+
+        if (vision == null
+                || vision.item() == null
+                || vision.item().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "The AI could not identify this item."
+            );
+        }
+
+        // Create the scanned item using the AI identification.
         ScannedItem item = new ScannedItem();
+
         item.setName(vision.item());
         item.setBrand(vision.brand());
         item.setSize(vision.size());
         item.setContainer(vision.container());
         item.setMaterial(vision.material());
         item.setConfidence(vision.confidence());
-        // Store userId so scan history can be fetched per user
-        String userId = (request.getUserId() == null || request.getUserId().isBlank())
-                ? "demo-user"
-                : request.getUserId();
+
+        String userId =
+                request.getUserId() == null
+                        || request.getUserId().isBlank()
+                        ? "demo-user"
+                        : request.getUserId();
+
         item.setUserId(userId);
 
-        double confidencePercent = toConfidencePercent(vision.confidence());
-        boolean autoConfirmed = confidencePercent >= 80.0;
+        // IMPORTANT:
+        // Every item requires user confirmation, even at 100% confidence.
+        item.setIdentificationConfirmed(false);
 
-        item.setIdentificationConfirmed(autoConfirmed);
+        // Do not make a recycling decision before confirmation.
         item.setRecyclable(false);
         item.setRecyclingStatus("UNVERIFIED");
         item.setBin("unknown");
         item.setDescription(
-                "Recycling information has not been verified yet."
+                "Please confirm the identified item before checking recycling information."
         );
 
-        ScannedItem savedItem = scannedItemRepository.save(item);
+        ScannedItem saved = scannedItemRepository.save(item);
 
-        System.out.println("Saved scanned item: " + savedItem.getId());
-        System.out.println("Identification confidence: " + confidencePercent);
-        System.out.println("Identification confirmed: " + autoConfirmed);
+        System.out.println("Saved scanned item: " + saved.getId());
+        System.out.println("Identified item: " + saved.getName());
+        System.out.println("Material: " + saved.getMaterial());
+        System.out.println("AI confidence: " + saved.getConfidence());
+        System.out.println("Identification confirmed: false");
+        System.out.println(
+                "Waiting for the user to confirm or correct the item."
+        );
 
-        String message = autoConfirmed
-                ? "High-confidence identification accepted. Recycling information is being checked."
-                : "Please confirm the identified item before continuing.";
-
-        return buildResponse(savedItem, message, 0);
-    }
-
-    /**
-     * Confirms an identification after the user accepts the suggested item.
-     */
-    public ScanResponse confirmIdentification(String itemId) {
-        ScannedItem item = findItem(itemId);
-
-        item.setIdentificationConfirmed(true);
-        ScannedItem savedItem = scannedItemRepository.save(item);
-
+        // Return the identification result without calling Tavily.
         return buildResponse(
-                savedItem,
-                "Item identification confirmed. Recycling information has not yet been verified.",
+                saved,
+                "Please confirm the identified item before checking recycling information.",
                 0
         );
     }
 
-    /**
-     * Checks recycling information using Tavily only.
-     * The item must be confirmed before this method can continue.
-     */
+    // Confirm identification and immediately verify recycling.
+    public ScanResponse confirmIdentification(String itemId) {
+
+        ScannedItem item = findItem(itemId);
+
+        item.setIdentificationConfirmed(true);
+        scannedItemRepository.save(item);
+
+        System.out.println(
+                "Identification confirmed. Starting recycling verification: "
+                        + itemId
+        );
+
+        return loadRecycling(itemId);
+    }
+
+    // Search Tavily, classify the results, and save the decision.
     public ScanResponse loadRecycling(String itemId) {
-        System.out.println("========== RECYCLING CHECK ==========");
 
         ScannedItem item = findItem(itemId);
 
         if (!item.isIdentificationConfirmed()) {
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
-                    "Please confirm the item's identification before checking recycling information."
+                    "Please confirm the item's identification first."
             );
         }
 
+        System.out.println("========== TAVILY SEARCH STARTED ==========");
         System.out.println("Item: " + item.getName());
-        System.out.println("Brand: " + item.getBrand());
-        System.out.println("Material: " + item.getMaterial());
+        System.out.println("Brand: " + safe(item.getBrand()));
+        System.out.println("Material: " + safe(item.getMaterial()));
 
-        List<TavilySearchService.SearchResult> results =
-                tavilySearchService.searchRecyclingInformation(
-                        item.getName(),
-                        item.getBrand(),
-                        item.getMaterial()
-                );
+        List<TavilySearchService.SearchResult> results;
 
-        if (results == null) {
+        try {
+            results = CompletableFuture.supplyAsync(() ->
+                    tavilySearchService.searchRecyclingInformation(
+                            item.getName(),
+                            item.getBrand(),
+                            item.getMaterial()
+                    )
+            ).orTimeout(
+                    RECYCLING_TIMEOUT_SECONDS,
+                    TimeUnit.SECONDS
+            ).join();
+
+            if (results == null) {
+                results = List.of();
+            }
+
+            System.out.println(
+                    "Tavily search completed. Results: " + results.size()
+            );
+
+        } catch (Exception e) {
+            System.err.println(
+                    "Tavily search failed or timed out: " + e.getMessage()
+            );
+
+            // A failed search must not be treated as proof of recyclability.
             results = List.of();
         }
 
-        System.out.println("Tavily results returned: " + results.size());
-
         RecyclingDecision decision = classifyRecycling(item, results);
 
-        item.setRecyclable(
-                "RECYCLABLE".equals(decision.status())
-        );
         item.setRecyclingStatus(decision.status());
+        item.setRecyclable("RECYCLABLE".equals(decision.status()));
         item.setBin(decision.bin());
 
         String description = decision.reason();
@@ -157,35 +210,45 @@ public class ScanService {
 
         item.setDescription(description);
 
-        ScannedItem savedItem = scannedItemRepository.save(item);
+        ScannedItem saved = scannedItemRepository.save(item);
 
-        int rewardPoints = 0;
+        int points = 0;
 
-        if ("RECYCLABLE".equals(savedItem.getRecyclingStatus())
-                && !"unknown".equalsIgnoreCase(savedItem.getBin())
-                && !"other".equalsIgnoreCase(savedItem.getBin())) {
-            rewardPoints = impactService.calculate(
-                    savedItem.getMaterial(),
-                    savedItem.getContainer()
+        if ("RECYCLABLE".equals(saved.getRecyclingStatus())
+                && saved.getBin() != null
+                && !saved.getBin().equalsIgnoreCase("unknown")
+                && !saved.getBin().equalsIgnoreCase("other")) {
+
+            points = impactService.calculate(
+                    saved.getMaterial(),
+                    saved.getContainer()
             ).rewardPoints();
         }
 
-        System.out.println(
-                "Recycling status: " + savedItem.getRecyclingStatus()
-        );
-        System.out.println("Bin: " + savedItem.getBin());
-        System.out.println("Reason: " + decision.reason());
-        System.out.println("========== RECYCLING CHECK COMPLETE ==========");
+        System.out.println("========== RECYCLING DECISION ==========");
+        System.out.println("Item: " + saved.getName());
+        System.out.println("Status: " + saved.getRecyclingStatus());
+        System.out.println("Bin: " + saved.getBin());
+        System.out.println("Sources: " + decision.sources().size());
 
-        return buildResponse(savedItem, decision.reason(), rewardPoints);
+        return buildResponse(saved, description, points);
     }
 
+    // Retrieve a user's scan history, newest scans first.
     public List<ScannedItem> scanHistory(String userId) {
-        String id = (userId == null || userId.isBlank()) ? "demo-user" : userId;
-        return scannedItemRepository.findByUserIdOrderByScannedAtDesc(id);
+
+        String resolvedUserId =
+                userId == null || userId.isBlank()
+                        ? "demo-user"
+                        : userId;
+
+        return scannedItemRepository
+                .findByUserIdOrderByScannedAtDesc(resolvedUserId);
     }
 
+    // Find a scanned item by its ID.
     private ScannedItem findItem(String itemId) {
+
         return scannedItemRepository.findById(itemId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
@@ -193,73 +256,111 @@ public class ScanService {
                 ));
     }
 
+    // Determine recycling status from the available search evidence.
     private RecyclingDecision classifyRecycling(
             ScannedItem item,
             List<TavilySearchService.SearchResult> results
     ) {
+        String name = normalize(item.getName());
         String material = normalize(item.getMaterial());
 
-        boolean plastic = material.contains("plastic");
-        boolean paper = material.contains("paper")
-                || material.contains("cardboard");
+        boolean plastic = containsAny(
+                material,
+                "plastic", "pet", "hdpe",
+                "polyethylene", "polypropylene"
+        );
+
+        boolean paper = containsAny(material, "paper", "cardboard");
         boolean glass = material.contains("glass");
-        boolean metal = material.contains("metal")
-                || material.contains("aluminium")
-                || material.contains("aluminum");
 
-        if (!plastic && !paper && !glass && !metal) {
-            return new RecyclingDecision(
-                    "UNVERIFIED",
-                    "unknown",
-                    "The identified material does not match a supported recycling category. Recycling acceptance could not be verified.",
-                    List.of()
-            );
-        }
+        boolean metal = containsAny(
+                material,
+                "metal", "aluminium", "aluminum", "steel"
+        );
 
-        if (results.isEmpty()) {
-            return new RecyclingDecision(
-                    "UNVERIFIED",
-                    "unknown",
-                    "No useful recycling evidence was returned. This does not mean the item is non-recyclable. Check with your local recycling provider.",
-                    List.of()
-            );
-        }
+        boolean plasticBottle = containsAny(
+                name,
+                "plastic bottle",
+                "water bottle",
+                "drinking water",
+                "drink bottle",
+                "beverage bottle",
+                "bottled water"
+        );
+
+        boolean glassJar = containsAny(
+                name,
+                "glass jar",
+                "glass bottle",
+                "jam jar",
+                "food jar"
+        );
 
         List<String> sources = extractSources(results);
-        int positiveMatches = 0;
-        int negativeMatches = 0;
+
+        if (!plastic && !paper && !glass && !metal) {
+
+            if (plasticBottle) {
+                return commonPackagingDecision(true, false, sources);
+            }
+
+            if (glassJar) {
+                return commonPackagingDecision(false, true, sources);
+            }
+
+            return new RecyclingDecision(
+                    "UNVERIFIED",
+                    "unknown",
+                    "The item's material could not be established. Check with your local recycling provider.",
+                    sources
+            );
+        }
+
+        int positive = 0;
+        int negative = 0;
 
         for (TavilySearchService.SearchResult result : results) {
-            String title = result.title() == null ? "" : result.title();
-            String content = result.content() == null ? "" : result.content();
-            String text = normalize(title + " " + content);
+
+            if (result == null) {
+                continue;
+            }
+
+            String text = normalize(
+                    safe(result.title()) + " " + safe(result.content())
+            );
 
             boolean relevantMaterial =
-                    (plastic && containsAny(text,
-                            "plastic", "pet", "polypropylene",
-                            "polyethylene", "polystyrene", "resin code"))
-                    || (paper && containsAny(text, "paper", "cardboard"))
+                    (plastic && containsAny(
+                            text,
+                            "plastic", "pet", "hdpe",
+                            "polypropylene", "polyethylene"
+                    ))
+                    || (paper && containsAny(
+                            text, "paper", "cardboard"
+                    ))
                     || (glass && text.contains("glass"))
-                    || (metal && containsAny(text,
-                            "metal", "aluminium", "aluminum", "metal can"));
+                    || (metal && containsAny(
+                            text, "metal", "aluminium", "aluminum", "steel"
+                    ));
 
             if (!relevantMaterial) {
                 continue;
             }
 
-            boolean negative = containsAny(text,
+            boolean saysNegative = containsAny(
+                    text,
                     "not recyclable",
                     "cannot be recycled",
                     "can't be recycled",
                     "not accepted for recycling",
                     "not accepted in recycling",
-                    "not accepted by the recycling",
+                    "not accepted for collection",
                     "do not recycle",
-                    "don't recycle",
-                    "should not be recycled",
-                    "not accepted for collection");
+                    "don't recycle"
+            );
 
-            boolean positive = containsAny(text,
+            boolean saysPositive = containsAny(
+                    text,
                     "accepted for recycling",
                     "accepted in recycling",
                     "accepted for collection",
@@ -267,102 +368,147 @@ public class ScanService {
                     "is recyclable",
                     "are recyclable",
                     "recyclable material",
-                    "recyclable plastics",
                     "recyclable plastic",
                     "recyclable paper",
-                    "recyclable cardboard",
                     "recyclable glass",
-                    "recyclable metal");
+                    "recyclable metal"
+            );
 
-            if (negative) {
-                negativeMatches++;
-            } else if (positive) {
-                positiveMatches++;
+            if (saysNegative) {
+                negative++;
+            }
+
+            if (saysPositive) {
+                positive++;
             }
         }
 
-        // Conflicting evidence is not enough to make a firm decision.
-        if (negativeMatches > 0 && positiveMatches > 0) {
+        if (positive > 0 && negative > 0) {
             return new RecyclingDecision(
                     "UNVERIFIED",
                     "unknown",
-                    "Search results contain conflicting information. Local acceptance could not be confirmed, so this item should not be marked recyclable or non-recyclable yet.",
+                    "Search results contain conflicting recycling information. Local acceptance could not be confirmed.",
                     sources
             );
         }
 
-        if (negativeMatches > 0) {
+        if (negative > 0) {
             return new RecyclingDecision(
                     "NOT_RECYCLABLE",
                     "other",
-                    "Search results contain evidence that this material may not be accepted by a recycling programme. Confirm the exact item and local rules with your recycling provider before disposal.",
+                    "Search results indicate that this item or material may not be accepted by some recycling programmes. Confirm the rules for your local collection service.",
                     sources
             );
         }
 
-        if (positiveMatches == 0) {
+        if (positive > 0) {
+
+            if (plastic) {
+                return new RecyclingDecision(
+                        "RECYCLABLE",
+                        "plastic",
+                        "Search results support recycling this plastic material. Empty and rinse the item, and check local collection rules.",
+                        sources
+                );
+            }
+
+            if (paper) {
+                return new RecyclingDecision(
+                        "RECYCLABLE",
+                        "paper",
+                        "Search results support recycling this paper or cardboard material. Check for coatings and contamination.",
+                        sources
+                );
+            }
+
+            if (glass) {
+                return new RecyclingDecision(
+                        "RECYCLABLE",
+                        "glass",
+                        "Search results support recycling this glass material. Confirm local collection rules.",
+                        sources
+                );
+            }
+
             return new RecyclingDecision(
-                    "UNVERIFIED",
-                    "unknown",
-                    "The search results did not provide enough specific evidence to confirm this item's recycling category. This does not necessarily mean the item is non-recyclable.",
+                    "RECYCLABLE",
+                    "metal",
+                    "Search results support recycling this metal material. Check local collection rules.",
                     sources
             );
         }
 
-        if (plastic) {
+        // Existing fallback for common packaging.
+        if (plasticBottle) {
+            return commonPackagingDecision(true, false, sources);
+        }
+
+        if (glassJar) {
+            return commonPackagingDecision(false, true, sources);
+        }
+
+        return new RecyclingDecision(
+                "UNVERIFIED",
+                "unknown",
+                "There is insufficient evidence to confirm whether this exact item is recyclable. This does not necessarily mean it is non-recyclable.",
+                sources
+        );
+    }
+
+    // Provide cautious guidance for common recyclable packaging.
+    private RecyclingDecision commonPackagingDecision(
+            boolean plasticBottle,
+            boolean glassJar,
+            List<String> sources
+    ) {
+        if (plasticBottle) {
             return new RecyclingDecision(
                     "RECYCLABLE",
                     "plastic",
-                    "Search results contain evidence that this material may be recyclable. The exact item and local facility acceptance still need to be checked. Clean the item and check its resin code where applicable.",
+                    "This appears to be a common plastic water or drink bottle, which is generally recyclable. Empty and rinse it. Local collection acceptance has not necessarily been verified.",
                     sources
             );
         }
 
-        if (paper) {
-            return new RecyclingDecision(
-                    "RECYCLABLE",
-                    "paper",
-                    "Search results contain evidence that paper or cardboard may be recyclable. Check for coatings, food contamination, and local restrictions.",
-                    sources
-            );
-        }
-
-        if (glass) {
+        if (glassJar) {
             return new RecyclingDecision(
                     "RECYCLABLE",
                     "glass",
-                    "Search results contain evidence that glass may be recyclable. Confirm local acceptance and remove residue before disposal.",
+                    "Glass jars and bottles are generally recyclable. Empty and rinse the container. Local collection acceptance has not necessarily been verified.",
                     sources
             );
         }
 
         return new RecyclingDecision(
-                "RECYCLABLE",
-                "metal",
-                "Search results contain evidence that metal may be recyclable. Confirm local acceptance before disposal.",
+                "UNVERIFIED",
+                "unknown",
+                "The item's recycling status could not be verified.",
                 sources
         );
     }
 
-    private boolean containsAny(String text, String... phrases) {
-        for (String phrase : phrases) {
-            if (text.contains(phrase)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
+    // Extract up to three unique source URLs.
     private List<String> extractSources(
             List<TavilySearchService.SearchResult> results
     ) {
         List<String> sources = new ArrayList<>();
 
+        if (results == null) {
+            return sources;
+        }
+
         for (TavilySearchService.SearchResult result : results) {
-            if (result.url() != null
-                    && !result.url().isBlank()
-                    && !sources.contains(result.url())) {
-                sources.add(result.url());
+
+            if (result == null) {
+                continue;
+            }
+
+            String url = result.url();
+
+            if (url != null
+                    && !url.isBlank()
+                    && !sources.contains(url)) {
+                sources.add(url);
             }
 
             if (sources.size() >= 3) {
@@ -373,16 +519,28 @@ public class ScanService {
         return sources;
     }
 
+    private boolean containsAny(String text, String... terms) {
+
+        for (String term : terms) {
+            if (text.contains(term)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private String normalize(String value) {
         return value == null
                 ? ""
                 : value.toLowerCase(Locale.ROOT).trim();
     }
 
-    private double toConfidencePercent(double confidence) {
-        return confidence <= 1.0 ? confidence * 100.0 : confidence;
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 
+    // Build the response shared by scanning and recycling endpoints.
     private ScanResponse buildResponse(
             ScannedItem item,
             String notes,
@@ -401,11 +559,14 @@ public class ScanService {
         response.setSize(item.getSize());
         response.setContainer(item.getContainer());
 
-        response.setIdentificationConfirmed(item.isIdentificationConfirmed());
+        response.setIdentificationConfirmed(
+                item.isIdentificationConfirmed()
+        );
+
         response.setIdentificationMessage(
                 item.isIdentificationConfirmed()
                         ? "Identification confirmed."
-                        : "Please confirm the identified item before continuing."
+                        : "Please confirm the identified item first."
         );
 
         response.setMaterial(item.getMaterial());
@@ -423,9 +584,9 @@ public class ScanService {
         response.setMatchedLabel(item.getName());
         response.setConfidence(item.getConfidence());
 
-        // Condition score — pure rule-based, no AI call
         ConditionService.ConditionResult condition =
                 conditionService.evaluate(item);
+
         response.setConditionScore(condition.score());
         response.setConditionLabel(condition.label());
         response.setConditionTips(condition.tips());
@@ -439,8 +600,5 @@ public class ScanService {
             String reason,
             List<String> sources
     ) {
-        private boolean recyclable() {
-            return "RECYCLABLE".equals(status);
-        }
     }
 }

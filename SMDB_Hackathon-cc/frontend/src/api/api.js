@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE_URL = '/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -9,28 +9,58 @@ const api = axios.create({
   },
 });
 
+// Scan and item identification
 export const scanApi = {
-  scan: (imageData, userId) => api.post('/scan', { image: imageData, userId }),
-  confirmIdentification: (itemId) => api.post(`/scan/${itemId}/confirm`),
-  correctItemName: (itemId, name) => api.put(`/scan/${itemId}/correct`, { name }),
-  loadRecycling: (itemId) => api.post(`/recycling/${itemId}`),
-  getScanHistory: (userId) => api.get('/scan/history', { params: { userId } }),
+  scan: (imageData) =>
+    api.post('/scan', { image: imageData }),
+
+  confirmIdentification: (itemId) =>
+    api.post(`/scan/${itemId}/confirm`),
+
+  correctItemName: (itemId, name, material) =>
+    api.put(`/scan/${itemId}/correct`, { name, material }),
+
+  loadRecycling: (itemId) =>
+    api.post(`/recycling/${itemId}`),
+
+  // Matches ScanController: GET /api/scan/history
+  getScanHistory: (userId) =>
+    api.get('/scan/history', {
+      params: userId ? { userId } : {},
+    }),
 };
 
+// Recycling catalog
 export const catalogApi = {
-  getAll: () => api.get('/catalog'),
-  getById: (id) => api.get(`/catalog/${id}`),
+  getAll: () =>
+    api.get('/catalog'),
+
+  getById: (id) =>
+    api.get(`/catalog/${id}`),
 };
 
+// Recycling actions, history, and statistics
 export const recycleApi = {
-  recycle: (request) => api.post('/recycle', request),
-  getStats: (userId) => api.get('/stats', { params: { userId } }),
-  getHistory: (userId) => api.get('/history', { params: { userId } }),
+  recycle: (request) =>
+    api.post('/recycle', request),
+
+  getStats: (userId) =>
+    api.get('/stats', {
+      params: userId ? { userId } : {},
+    }),
+
+  getHistory: (userId) =>
+    api.get('/history', {
+      params: userId ? { userId } : {},
+    }),
 };
 
+// Nearby recycling locations
 export const mapApi = {
   findNearby: (lat, lng, material = '') =>
-    api.get('/places/recycling', { params: { lat, lng, material } }),
+    api.get('/places/recycling', {
+      params: { lat, lng, material },
+    }),
 };
 
 export default api;
