@@ -9,7 +9,9 @@ import {
   Search,
   Package,
   Filter,
+  XCircle,
 } from 'lucide-react';
+import { scanApi } from '../api/api';
 
 const STATUS_OPTIONS = [
   { value: 'ALL', label: 'All scans' },
@@ -47,11 +49,7 @@ const formatDate = (dateString) => {
 };
 
 const formatConfidence = (confidence) => {
-  if (
-    confidence === null ||
-    confidence === undefined ||
-    confidence === ''
-  ) {
+  if (confidence === null || confidence === undefined || confidence === '') {
     return 'Unavailable';
   }
 
@@ -87,7 +85,7 @@ const getStatusStyle = (status) => {
       return {
         label: 'Not recyclable',
         className: 'bg-red-100 text-red-700',
-        Icon: AlertCircle,
+        Icon: XCircle,
       };
 
     default:
@@ -107,71 +105,80 @@ export default function History({ userId, refreshKey }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
-  const loadHistory = useCallback(async (isRefresh = false) => {
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-
-    setError('');
-
-    try {
-      const apiBase = import.meta.env.VITE_API_BASE_URL || '/api';
-      const url = `${apiBase}/scan/history`;
-
-      const response = await fetch(
-        userId
-          ? `${url}?userId=${encodeURIComponent(userId)}`
-          : url
-      );
-
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(
-          `Failed to load history. HTTP ${response.status}: ${message}`
-        );
+  const loadHistory = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
       }
 
-      const result = await response.json();
+      setError('');
 
-      const records = Array.isArray(result)
-        ? result
-        : Array.isArray(result?.data)
-          ? result.data
-          : Array.isArray(result?.items)
-            ? result.items
-            : [];
+      try {
+        const response = await scanApi.getScanHistory(userId);
+        const result = response.data;
 
-      const sortedRecords = [...records].sort((a, b) => {
-        const dateA = new Date(a.scannedAt || 0).getTime();
-        const dateB = new Date(b.scannedAt || 0).getTime();
+        const records = Array.isArray(result)
+          ? result
+          : Array.isArray(result?.data)
+            ? result.data
+            : Array.isArray(result?.items)
+              ? result.items
+              : [];
 
-        return dateB - dateA;
-      });
+        const sortedRecords = [...records].sort((a, b) => {
+          const dateA = new Date(a.scannedAt || 0).getTime();
+          const dateB = new Date(b.scannedAt || 0).getTime();
 
-      setHistory(sortedRecords);
-    } catch (err) {
-      console.error('Failed to load scan history:', err);
+          return dateB - dateA;
+        });
 
-      setError(
-        err.message ||
-        'Unable to load scan history. Check that the backend is running and the scan-history API endpoint exists.'
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [userId]);
+        setHistory(sortedRecords);
+      } catch (err) {
+        console.error('Failed to load scan history:', err);
+
+        const status = err.response?.status;
+        const serverMessage =
+          typeof err.response?.data === 'string'
+            ? err.response.data
+            : err.response?.data?.message ||
+              err.response?.data?.error;
+
+        if (!err.response) {
+          setError(
+            'Unable to connect to the server. Check your internet connection and API URL.'
+          );
+        } else {
+          setError(
+            `Failed to load history${status ? ` (HTTP ${status})` : ''}. ${
+              serverMessage || err.message || 'Please try again.'
+            }`
+          );
+        }
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [userId]
+  );
 
   useEffect(() => {
     loadHistory();
-  }, [loadHistory]);
+  }, [loadHistory, refreshKey]);
 
   const counts = useMemo(() => {
     return history.reduce(
       (result, item) => {
-        const status = normalizeStatus(item.recyclingStatus);
+        const status = normalizeStatus(
+          item.recyclingStatus ??
+          (item.recyclable === true
+            ? 'RECYCLABLE'
+            : item.recyclable === false
+              ? 'NOT_RECYCLABLE'
+              : 'UNVERIFIED')
+        );
 
         result.ALL += 1;
         result[status] += 1;
@@ -191,7 +198,14 @@ export default function History({ userId, refreshKey }) {
     const query = search.trim().toLowerCase();
 
     return history.filter((item) => {
-      const status = normalizeStatus(item.recyclingStatus);
+      const status = normalizeStatus(
+        item.recyclingStatus ??
+        (item.recyclable === true
+          ? 'RECYCLABLE'
+          : item.recyclable === false
+            ? 'NOT_RECYCLABLE'
+            : 'UNVERIFIED')
+      );
 
       const matchesStatus =
         statusFilter === 'ALL' || status === statusFilter;
@@ -214,24 +228,6 @@ export default function History({ userId, refreshKey }) {
     });
   }, [history, search, statusFilter]);
 
-  const StatusIcon = ({ status }) => {
-    if (status === 'RECYCLABLE') return <CheckCircle size={18} className="text-green-500" />;
-    if (status === 'NOT_RECYCLABLE') return <XCircle size={18} className="text-red-500" />;
-    return <HelpCircle size={18} className="text-yellow-500" />;
-  };
-
-  const statusLabel = (status) => {
-    if (status === 'RECYCLABLE') return 'Recyclable';
-    if (status === 'NOT_RECYCLABLE') return 'Not Recyclable';
-    return 'Unverified';
-  };
-
-  const statusColors = (status) => {
-    if (status === 'RECYCLABLE') return 'bg-green-100 text-green-800';
-    if (status === 'NOT_RECYCLABLE') return 'bg-red-100 text-red-800';
-    return 'bg-yellow-100 text-yellow-800';
-  };
-
   if (loading) {
     return (
       <div className="max-w-3xl mx-auto p-6 text-center">
@@ -246,12 +242,10 @@ export default function History({ userId, refreshKey }) {
 
   return (
     <div className="max-w-3xl mx-auto p-4 sm:p-6">
-      {/* Header */}
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-2 mb-2">
             <HistoryIcon size={25} className="text-green-600" />
-
             <h2 className="text-2xl font-bold text-gray-900">
               Scan History
             </h2>
@@ -267,7 +261,7 @@ export default function History({ userId, refreshKey }) {
           onClick={() => loadHistory(true)}
           disabled={refreshing}
           className="shrink-0 p-3 rounded-xl border border-gray-200 hover:bg-gray-100 disabled:opacity-50 transition"
-          aria-label="Refresh scan history"
+          aria-label="Refresh history"
           title="Refresh history"
         >
           <RefreshCw
@@ -277,13 +271,10 @@ export default function History({ userId, refreshKey }) {
         </button>
       </div>
 
-      {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <p className="text-sm text-gray-500">Total scans</p>
-          <p className="text-2xl font-bold text-gray-900">
-            {counts.ALL}
-          </p>
+          <p className="text-2xl font-bold text-gray-900">{counts.ALL}</p>
         </div>
 
         <div className="rounded-xl border border-green-200 bg-green-50 p-4">
@@ -308,7 +299,6 @@ export default function History({ userId, refreshKey }) {
         </div>
       </div>
 
-      {/* Search */}
       <div className="relative mb-4">
         <Search
           size={19}
@@ -325,7 +315,6 @@ export default function History({ userId, refreshKey }) {
         />
       </div>
 
-      {/* Status filters */}
       <div className="flex items-center gap-2 flex-wrap mb-6">
         <Filter size={17} className="text-gray-500" />
 
@@ -352,14 +341,10 @@ export default function History({ userId, refreshKey }) {
         })}
       </div>
 
-      {/* Error message */}
       {error && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 mb-5">
           <div className="flex items-start gap-2">
-            <AlertCircle
-              size={20}
-              className="text-red-600 shrink-0"
-            />
+            <AlertCircle size={20} className="text-red-600 shrink-0" />
 
             <div>
               <p className="text-sm text-red-700">{error}</p>
@@ -376,23 +361,17 @@ export default function History({ userId, refreshKey }) {
         </div>
       )}
 
-      {/* Empty state */}
       {!error && filteredHistory.length === 0 && (
         <div className="rounded-xl border border-gray-200 bg-white p-8 text-center">
-          <Package
-            size={42}
-            className="mx-auto text-gray-400 mb-3"
-          />
+          <Package size={42} className="mx-auto text-gray-400 mb-3" />
 
           <p className="font-semibold text-gray-800">
-            {history.length === 0
-              ? 'No scan history yet'
-              : 'No matching scans'}
+            {history.length === 0 ? 'No scan history yet' : 'No matching scans'}
           </p>
 
           <p className="text-sm text-gray-500 mt-2">
             {history.length === 0
-              ? 'Scan an item and it will appear here, including items whose recycling status is unverified.'
+              ? 'Scan an item and it will appear here.'
               : 'Try another search term or select a different status filter.'}
           </p>
 
@@ -411,11 +390,18 @@ export default function History({ userId, refreshKey }) {
         </div>
       )}
 
-      {/* History records */}
       {!error && filteredHistory.length > 0 && (
         <div className="space-y-4">
           {filteredHistory.map((item, index) => {
-            const status = getStatusStyle(item.recyclingStatus);
+            const status = getStatusStyle(
+              item.recyclingStatus ??
+              (item.recyclable === true
+                ? 'RECYCLABLE'
+                : item.recyclable === false
+                  ? 'NOT_RECYCLABLE'
+                  : 'UNVERIFIED')
+            );
+
             const StatusIcon = status.Icon;
 
             return (
@@ -427,7 +413,6 @@ export default function History({ userId, refreshKey }) {
                 }
                 className="rounded-xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm"
               >
-                {/* Item details */}
                 <div className="flex items-start justify-between gap-3 mb-3">
                   <div className="min-w-0">
                     <h3 className="font-semibold text-gray-900 text-lg break-words">
@@ -461,19 +446,15 @@ export default function History({ userId, refreshKey }) {
                     <p className="font-semibold text-gray-800">
                       {formatConfidence(item.confidence)}
                     </p>
-                    <p className="text-xs text-gray-500">
-                      Confidence
-                    </p>
+                    <p className="text-xs text-gray-500">Confidence</p>
                   </div>
                 </div>
 
-                {/* Scan date */}
                 <div className="flex items-center gap-2 text-sm text-gray-500 mb-3">
                   <Calendar size={16} className="shrink-0" />
                   <span>{formatDate(item.scannedAt)}</span>
                 </div>
 
-                {/* Status badges */}
                 <div className="flex flex-wrap items-center gap-2 mb-4">
                   <span
                     className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${status.className}`}
@@ -489,13 +470,9 @@ export default function History({ userId, refreshKey }) {
                   )}
                 </div>
 
-                {/* Recycling information */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-lg bg-gray-50 p-3">
-                    <p className="text-xs text-gray-500 mb-1">
-                      Recycling bin
-                    </p>
-
+                    <p className="text-xs text-gray-500 mb-1">Recycling bin</p>
                     <p className="font-medium text-sm text-gray-800 break-words">
                       {formatBin(item.bin)}
                     </p>
@@ -505,11 +482,24 @@ export default function History({ userId, refreshKey }) {
                     <p className="text-xs text-gray-500 mb-1">
                       Recycling result
                     </p>
-
                     <p className="font-medium text-sm text-gray-800">
-                      {normalizeStatus(item.recyclingStatus) === 'RECYCLABLE'
+                      {normalizeStatus(
+                        item.recyclingStatus ??
+                        (item.recyclable === true
+                          ? 'RECYCLABLE'
+                          : item.recyclable === false
+                            ? 'NOT_RECYCLABLE'
+                            : 'UNVERIFIED')
+                      ) === 'RECYCLABLE'
                         ? 'Yes'
-                        : normalizeStatus(item.recyclingStatus) === 'NOT_RECYCLABLE'
+                        : normalizeStatus(
+                            item.recyclingStatus ??
+                            (item.recyclable === true
+                              ? 'RECYCLABLE'
+                              : item.recyclable === false
+                                ? 'NOT_RECYCLABLE'
+                                : 'UNVERIFIED')
+                          ) === 'NOT_RECYCLABLE'
                           ? 'No'
                           : 'Not verified'}
                     </p>
@@ -527,7 +517,6 @@ export default function History({ userId, refreshKey }) {
         </div>
       )}
 
-      {/* Result count */}
       {!error && history.length > 0 && (
         <p className="text-center text-xs text-gray-500 mt-6">
           Showing {filteredHistory.length} of {history.length} scans
