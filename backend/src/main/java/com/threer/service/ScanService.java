@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class ScanService {
 
-    private static final long RECYCLING_TIMEOUT_SECONDS = 10;
+    private static final long RECYCLING_TIMEOUT_SECONDS = 30;
 
     private final GroqVisionService visionService;
     private final TavilySearchService tavilySearchService;

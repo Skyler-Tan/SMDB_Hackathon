@@ -14,6 +14,7 @@ import {
   MapPin,
   Sun,
   Moon,
+  ShoppingBag,
 } from 'lucide-react';
 
 import ScanComponent from './components/Scan';
@@ -26,6 +27,8 @@ import FetchRecyclingCentre from './components/FetchRecyclingCentre';
 import History from './components/History';
 import RecycleHistory from './components/RecycleHistory';
 import Home from './components/Home';
+import Marketplace from './components/Marketplace';
+import SavedIdeas from './components/SavedIdeas';
 
 function Navigation() {
   const location = useLocation();
@@ -37,6 +40,7 @@ function Navigation() {
     { path: '/scan', label: 'Scan', Icon: Scan },
     { path: '/map', label: 'Map', Icon: MapPin },
     { path: '/community', label: 'Community', Icon: Users },
+    { path: '/market', label: 'Market', Icon: ShoppingBag },
     { path: '/profile', label: 'Profile', Icon: User },
   ];
 
@@ -66,7 +70,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('34district-theme') === 'dark');
 
-  const userId = user?.id || 'demo-user';
+  const userId = user?.id ?? user?._id ?? user?.userId ?? user?.username ?? user?.email ?? 'demo-user';
 
   const handleLogin = (userData) => {
     setUser(userData);
@@ -124,6 +128,13 @@ function App() {
               path="/community"
               element={<Community userId={userId} />}
             />
+
+            <Route
+             path="/market"
+             element={<Marketplace userId={userId} user={user} />}
+             />
+
+             <Route path="/saved-ideas" element={<SavedIdeas userId={userId} />} />
 
             <Route
               path="/history"

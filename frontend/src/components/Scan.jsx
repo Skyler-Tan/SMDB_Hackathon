@@ -44,8 +44,9 @@ export default function Scan({ onScanComplete, userId }) {
     try {
       setError(null);
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-      });
+        video: { facingMode: 'environment',width: { ideal: 1920 }, height: { ideal: 1080 },
+       },
+       });
       streamRef.current = stream;
       setShowCamera(true);
     } catch (err) {
@@ -87,19 +88,36 @@ export default function Scan({ onScanComplete, userId }) {
       return;
     }
     try {
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      const boxW = video.clientWidth || vw;
+      const boxH = video.clientHeight || vh;
+
+      const videoRatio = vw / vh;
+      const boxRatio = boxW / boxH;
+
+      let sx = 0, sy = 0, sw = vw, sh = vh;
+
+       if (videoRatio > boxRatio) {
+        sw = vh * boxRatio;
+        sx = (vw - sw) / 2;
+       } else {
+        sh = vw / boxRatio;
+        sy = (vh - sh) / 2;
+      }
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      canvas.width = Math.round(sw);
+      canvas.height = Math.round(sh);
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.drawImage(video, 0, 0);
-        const data = canvas.toDataURL('image/jpeg', 0.9);
-        setPreview(data);
-        setImage(data.split(',')[1]);
-        stopCamera();
+      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      const data = canvas.toDataURL('image/jpeg', 0.9);
+      setPreview(data);
+      setImage(data.split(',')[1]);
+      stopCamera();
       } else {
-        setError('Failed to capture photo. Please try again.');
-      }
+      setError('Failed to capture photo. Please try again.');
+}
     } catch (err) {
       setError('Failed to capture photo. Please try again.');
     }
@@ -185,6 +203,7 @@ export default function Scan({ onScanComplete, userId }) {
     setShowRecycling(false);
     setShowReuse(false);
     setError(null);
+    stopCamera();
     setActiveTab(tab);
     if (tab === 'history') setHistoryRefreshKey((k) => k + 1);
   };
@@ -232,6 +251,7 @@ export default function Scan({ onScanComplete, userId }) {
           material: scanResult.material,
           diyGuides: [],
         }}
+        userId={userId}
         onClose={closeReuse}
       />
     );
@@ -267,21 +287,18 @@ export default function Scan({ onScanComplete, userId }) {
         {activeTab === 'scan' && !preview && (
           <div className="space-y-4">
             {showCamera ? (
-              <div className="relative">
-                <video ref={videoRef} autoPlay playsInline muted className="w-full rounded-lg" />
-                <button
-                  onClick={stopCamera}
-                  className="absolute top-4 right-4 bg-red-600 text-white rounded-full p-2"
-                >
+              <div className="relative w-full mx-auto overflow-hidden rounded-2xl bg-black aspect-[3/4]" style={{ maxHeight: 'calc(100vh - 14rem)' }}>
+                <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
+                <button onClick={stopCamera} className="absolute top-3 right-3 z-10 bg-black/50 hover:bg-black/70 backdrop-blur-sm text-white rounded-full p-2 transition" aria-label="Close camera">
                   <X size={20} />
                 </button>
-                <div className="flex justify-center mt-4">
+                <div className="absolute inset-x-0 bottom-0 z-10 flex justify-center pb-5 pt-10 bg-gradient-to-t from-black/50 to-transparent">
                   <button
                     onClick={capturePhoto}
-                    className="bg-white rounded-full p-4 shadow-lg border border-gray-200"
+                    className="flex items-center justify-center w-[72px] h-[72px] rounded-full bg-white/90 hover:bg-white active:scale-95 shadow-lg transition"
                     aria-label="Capture photo"
                   >
-                    <div className="w-12 h-12 border-4 border-green-600 rounded-full" />
+                    <span className="block w-14 h-14 rounded-full border-4 border-green-600" />
                   </button>
                 </div>
               </div>
@@ -317,8 +334,14 @@ export default function Scan({ onScanComplete, userId }) {
 
         {/* Preview — ready to submit */}
         {activeTab === 'scan' && preview && (
-          <div className="space-y-4">
-            <img src={preview} alt="Preview" className="w-full rounded-lg" />
+           <div className="space-y-4">
+           <div className="relative w-full mx-auto overflow-hidden rounded-2xl bg-black aspect-[3/4]" style={{ maxHeight: 'calc(100vh - 14rem)' }}>
+           <img
+             src={preview}
+             alt="Preview"
+             className="absolute inset-0 w-full h-full object-cover"
+            />
+           </div>
             <div className="flex gap-3">
               <button
                 onClick={handleScan}
@@ -359,7 +382,7 @@ export default function Scan({ onScanComplete, userId }) {
   }
 
   return (
-    <div className="max-w-md mx-auto p-6">
+    <div className="max-w-md mx-auto p-4 sm:p-6">
       {tabBar}
       {content}
     </div>
