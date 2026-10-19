@@ -438,7 +438,8 @@ export default function CommunityPosts({ userId }) {
 
             {/* Feed filters */}
             <div className="community-filter-panel rounded-2xl border p-4 shadow-sm">
-              <div className="mb-3 flex items-center justify-between gap-2"><div><p className="text-sm font-bold">Browse posts</p><p className="text-xs opacity-70">Filter the feed by topic</p></div><span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-800">{posts.filter((post) => postFilter === 'all' || post.type === postFilter).length} posts</span></div>
+              <div className="mb-3 flex items-center justify-between gap-2"><div><p className="text-sm font-bold">Browse posts</p><p className="text-xs opacity-70">Filter the feed by topic</p></div><span className="rounded-full bg-green-50 px-4 py-2 text-green-700 text-xs font-semibold">
+            {posts.filter((post) => postFilter === 'all' || post.type === postFilter).length} posts</span></div>
               <div className="flex flex-wrap gap-2">{[{value:'all',label:'All posts'},{value:'challenge',label:'Challenges'},{value:'tip',label:'Tips'},{value:'fact',label:'Random facts'},{value:'recycle',label:'Recycling'},{value:'community',label:'Discussion'},{value:'for-sale',label:'For sale'}].map((option) => <button key={option.value} type="button" onClick={() => setPostFilter(option.value)} className={`community-filter-chip rounded-full border px-3 py-1.5 text-xs font-semibold transition ${postFilter === option.value ? 'is-selected' : ''}`}>{option.label}</button>)}</div>
             </div>
             {posts.filter((post) => postFilter === 'all' || post.type === postFilter).length === 0 ? (
