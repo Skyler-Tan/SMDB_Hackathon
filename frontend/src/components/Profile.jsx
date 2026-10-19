@@ -302,6 +302,23 @@ export default function Profile({
 
   const displayName = user?.username || user?.fullName || 'Eco Member';
 
+  // Generate countable leaf positions for the canopy using deterministic trigonometric dispersion
+  const leafCount = Math.min(totalPoints, 200); // Visual max cap at 60 for clean canopy presentation
+  const leaves = Array.from({ length: leafCount }, (_, index) => {
+    const angle = (index * 137.5 * Math.PI) / 180; // Golden ratio positioning angle
+    const radius = Math.sqrt(index + 1) * 9; // Spiral radius distribution
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius * 0.7; // Elliptical adjustment for natural crown spread
+    const rotation = (index * 45) % 360;
+
+    return {
+      id: index + 1,
+      x,
+      y,
+      rotation,
+    };
+  });
+
   return (
       <div className="mx-auto max-w-5xl p-4 sm:p-6 lg:p-8">
         {/* WIDER 2-COLUMN GRID LAYOUT */}
@@ -414,15 +431,43 @@ export default function Profile({
                 </h3>
               </div>
 
-              <div className="mb-5 rounded-xl bg-green-50 p-5 text-center">
-                <p className="text-sm font-medium text-green-700">
+              <div className="mb-5 rounded-xl bg-green-50 p-6 text-center flex flex-col items-center">
+                {/* COUNTABLE ECO TREE CANOPY */}
+                <div className="relative my-4 flex h-48 w-full max-w-xs items-center justify-center">
+                  {/* Tree Trunk & Branches */}
+                  <svg className="absolute bottom-0 h-28 w-24 text-amber-800" viewBox="0 0 100 100" fill="currentColor">
+                    <path d="M40 100 L60 100 L58 40 L75 20 L65 15 L53 32 L47 32 L35 15 L25 20 L42 40 Z" />
+                  </svg>
+
+                  {/* Rendered Countable Leaves */}
+                  <div className="absolute top-10 flex items-center justify-center">
+                    {leaves.map((leaf) => (
+                        <div
+                            key={leaf.id}
+                            title={`Leaf #${leaf.id} (1 point)`}
+                            className="absolute text-green-600 transition-all duration-300 hover:scale-125 hover:text-green-800"
+                            style={{
+                              transform: `translate(${leaf.x}px, ${leaf.y}px) rotate(${leaf.rotation}deg)`,
+                            }}
+                        >
+                          <Leaf size={18} className="drop-shadow-sm fill-green-500 text-green-700" />
+                        </div>
+                    ))}
+                  </div>
+                </div>
+
+                <p className="text-xs font-semibold uppercase tracking-wider text-green-800">
+                  Tree Canopy Status: {leafCount} {leafCount === 1 ? 'Leaf' : 'Leaves'} Rendered
+                </p>
+
+                <p className="mt-2 text-sm font-medium text-green-700">
                   Total points earned
                 </p>
                 <p className="mt-1 text-4xl font-extrabold text-green-700">
-                  {totalPoints}
+                  {totalPoints+reusePoints+recyclePoints}
                 </p>
                 <p className="mt-1 text-sm text-green-700">
-                  Every action makes a difference!
+                  Every action grows a leaf on your tree!
                 </p>
               </div>
 
