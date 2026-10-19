@@ -35,3 +35,51 @@ code {
 .dark-mode .bg-amber-50 { background-color: #422006 !important; }
 .dark-mode .bg-blue-50 { background-color: #172554 !important; }
 .dark-mode .bg-purple-100 { background-color: #3b0764 !important; }
+
+/* Scan controls adapt to both themes instead of using fixed dark surfaces. */
+.scan-tab-bar { background: #e5e7eb; border: 1px solid #d1d5db; }
+.scan-tab { color: #374151; background: #ffffff; border: 1px solid #d1d5db; }
+.scan-tab:hover { background: #f3f4f6; }
+.scan-tab.is-active { color: #ffffff; background: #15803d; border-color: #15803d; box-shadow: 0 2px 8px rgb(21 128 61 / 20%); }
+.dark-mode .scan-tab-bar { background: #0b1220; border-color: #374151; }
+.dark-mode .scan-tab { color: #e5e7eb; background: #1f2937; border-color: #4b5563; }
+.dark-mode .scan-tab:hover { background: #374151; }
+.dark-mode .scan-tab.is-active { color: #ffffff; background: #15803d; border-color: #22c55e; }
+
+/* Community feed: higher-contrast category tags and consistent challenge surfaces. */
+.community-filter-panel { color: #111827; background: #ffffff; border-color: #e5e7eb; }
+.community-filter-chip { color: #374151; background: #f9fafb; border-color: #d1d5db; }
+.community-filter-chip:hover { background: #f3f4f6; }
+.community-filter-chip.is-selected { color: #ffffff; background: #15803d; border-color: #15803d; }
+.community-challenge-card { background: #f0fdf4; border-color: #86efac; }
+.community-challenge-card:hover { background: #dcfce7; }
+.community-listing-link { color: #9d174d; background: #fdf2f8; border-color: #f9a8d4; }
+.community-listing-link:hover { background: #fce7f3; }
+.dark-mode .community-filter-panel { color: #f3f4f6; background: #111827; border-color: #374151; }
+.dark-mode .community-filter-chip { color: #e5e7eb; background: #1f2937; border-color: #4b5563; }
+.dark-mode .community-filter-chip:hover { background: #374151; }
+.dark-mode .community-filter-chip.is-selected { color: #ffffff; background: #15803d; border-color: #22c55e; }
+.dark-mode .community-challenge-card { background: #102b22; border-color: #166534; }
+.dark-mode .community-challenge-card:hover { background: #153a2b; }
+.dark-mode .community-challenge-title { color: #f9fafb !important; }
+.dark-mode .community-challenge-meta { color: #d1d5db !important; }
+.dark-mode .community-listing-link { color: #fbcfe8; background: #500724; border-color: #9d174d; }
+.dark-mode .community-listing-link:hover { background: #831843; }
+.dark-mode .community-post-type.type-challenge { color: #e9d5ff !important; background: #4c1d95 !important; }
+.dark-mode .community-post-type.type-tip { color: #bfdbfe !important; background: #1e3a8a !important; }
+.dark-mode .community-post-type.type-fact { color: #fde68a !important; background: #78350f !important; }
+.dark-mode .community-post-type.type-recycle { color: #bbf7d0 !important; background: #14532d !important; }
+.dark-mode .community-post-type.type-community { color: #e2e8f0 !important; background: #334155 !important; }
+.dark-mode .community-post-type.type-for-sale { color: #fbcfe8 !important; background: #831843 !important; }
+
+/* Marketplace controls stay legible in dark mode, including neutral buttons and cards. */
+.dark-mode .marketplace-content .text-gray-900,
+.dark-mode .marketplace-content .text-gray-800,
+.dark-mode .marketplace-list .text-gray-900,
+.dark-mode .marketplace-list .text-gray-800 { color: #f9fafb !important; }
+.dark-mode .marketplace-content button:not(.bg-green-600),
+.dark-mode .marketplace-list button:not(.bg-green-600) { border-color: #4b5563; }
+.dark-mode .marketplace-content .bg-white,
+.dark-mode .marketplace-list .bg-white { background-color: #111827 !important; }
+.dark-mode .marketplace-content .hover\:bg-gray-50:hover,
+.dark-mode .marketplace-list .hover\:bg-gray-50:hover { background-color: #1f2937 !important; }

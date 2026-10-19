@@ -11,7 +11,6 @@ import {
   Home as HomeIcon,
   Users,
   User,
-  MapPin,
   Sun,
   Moon,
   ShoppingBag,
@@ -38,7 +37,6 @@ function Navigation() {
   const navItems = [
     { path: '/', label: 'Home', Icon: HomeIcon },
     { path: '/scan', label: 'Scan', Icon: Scan },
-    { path: '/map', label: 'Map', Icon: MapPin },
     { path: '/community', label: 'Community', Icon: Users },
     { path: '/market', label: 'Market', Icon: ShoppingBag },
     { path: '/profile', label: 'Profile', Icon: User },

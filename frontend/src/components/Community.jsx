@@ -81,7 +81,7 @@ export default function Community({ userId }) {
           <div className="space-y-6 md:col-span-4">
 
             {/* ACTIVE CHALLENGES CARD */}
-            <section className="rounded-2xl bg-white p-5 shadow-lg border border-gray-100">
+            <section className="community-panel rounded-2xl bg-white p-5 shadow-lg border border-gray-100">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="flex items-center gap-2 text-base font-bold text-gray-900">
                   <Award size={20} className="text-green-600" />
@@ -96,10 +96,10 @@ export default function Community({ userId }) {
                 {challenges.map((challenge) => (
                     <div
                         key={challenge.id}
-                        className="rounded-xl border border-green-200 bg-green-50/60 p-3 transition hover:bg-green-50"
+                        className="community-challenge-card rounded-xl border p-3 transition"
                     >
-                      <h4 className="text-xs font-semibold text-gray-900">{challenge.title}</h4>
-                      <div className="mt-1.5 flex items-center justify-between text-[11px] text-gray-600">
+                      <h4 className="community-challenge-title text-xs font-semibold text-gray-900">{challenge.title}</h4>
+                      <div className="community-challenge-meta mt-1.5 flex items-center justify-between text-[11px] text-gray-600">
                     <span className="flex items-center gap-1">
                       <Users size={13} className="text-gray-400" />
                       {challenge.participants} joined
@@ -112,7 +112,7 @@ export default function Community({ userId }) {
             </section>
 
             {/* TOP RECYCLERS LEADERBOARD CARD */}
-            <section className="rounded-2xl bg-white p-5 shadow-lg border border-gray-100">
+            <section className="community-panel rounded-2xl bg-white p-5 shadow-lg border border-gray-100">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="flex items-center gap-2 text-base font-bold text-gray-900">
                   <Trophy size={20} className="text-amber-500" />

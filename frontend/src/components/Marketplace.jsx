@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Search, Plus, Loader2, AlertCircle, ShoppingBag } from 'lucide-react';
 import { marketApi } from '../api/api';
+import { useSearchParams } from 'react-router-dom';
 import ListingCard from './ListingCard';
 import ListingForm from './ListingForm';
 import ListingDetail from './ListingDetail';
@@ -18,6 +19,7 @@ import { CATEGORIES, STATUS } from './Marketconstants';
  */
 export default function Marketplace({ userId, user, prefill = null, onShareToCommunity }) {
   const me = userId || 'demo-user';
+  const [searchParams] = useSearchParams();
 
   const [view, setView] = useState(prefill ? 'form' : 'browse'); // browse | detail | form
   const [listings, setListings] = useState([]);
@@ -49,6 +51,13 @@ export default function Marketplace({ userId, user, prefill = null, onShareToCom
   useEffect(() => {
     loadListings();
   }, [loadListings]);
+
+  useEffect(() => {
+    const listingId = searchParams.get('listingId');
+    if (!listingId || !listings.length) return;
+    const listing = listings.find((item) => String(item.id) === String(listingId));
+    if (listing) { setSelectedId(listing.id); setView('detail'); }
+  }, [searchParams, listings]);
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -158,7 +167,7 @@ export default function Marketplace({ userId, user, prefill = null, onShareToCom
     );
   } else {
     content = (
-      <div className="space-y-4">
+      <div className="marketplace-content space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">

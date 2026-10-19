@@ -13,8 +13,10 @@ import {
   Users,
   Sparkles,
   MessageSquare,
+  ShoppingBag,
 } from 'lucide-react';
-import { recycleApi } from '../api/api';
+import { recycleApi, marketApi } from '../api/api';
+import { Link } from 'react-router-dom';
 
 export default function CommunityPosts({ userId }) {
   const [posts, setPosts] = useState(() => {
@@ -26,6 +28,11 @@ export default function CommunityPosts({ userId }) {
   });
   const [loading, setLoading] = useState(true);
   const [newPost, setNewPost] = useState('');
+  const [newPostType, setNewPostType] = useState('tip');
+  const [salePrice, setSalePrice] = useState('');
+  const [marketListings, setMarketListings] = useState([]);
+  const [selectedListingId, setSelectedListingId] = useState('');
+  const [postFilter, setPostFilter] = useState('all');
   const [showCreatePost, setShowCreatePost] = useState(false);
 
   // Edit post state
@@ -47,6 +54,7 @@ export default function CommunityPosts({ userId }) {
 
   useEffect(() => {
     loadPosts();
+    marketApi.getListings().then((response) => setMarketListings(Array.isArray(response?.data) ? response.data : [])).catch((error) => console.error('Could not load marketplace listings:', error));
   }, [userId]);
 
   const loadPosts = async () => {
@@ -82,7 +90,7 @@ export default function CommunityPosts({ userId }) {
           likes: 62,
           comments: 8,
           timestamp: new Date(Date.now() - 86400000).toISOString(),
-          type: 'tip',
+          type: 'fact',
         },
       ];
 
@@ -191,13 +199,18 @@ export default function CommunityPosts({ userId }) {
       likes: 0,
       comments: 0,
       timestamp: new Date().toISOString(),
-      type: 'community',
+      type: newPostType,
+      ...(newPostType === 'for-sale' && salePrice.trim() ? { price: salePrice.trim() } : {}),
+      ...(newPostType === 'for-sale' && selectedListingId ? { listingId: selectedListingId, listingTitle: marketListings.find((listing) => String(listing.id) === String(selectedListingId))?.title } : {}),
       isLocal: true,
       isOwnPost: true,
     };
 
     setPosts((previousPosts) => [post, ...previousPosts]);
     setNewPost('');
+    setNewPostType('tip');
+    setSalePrice('');
+    setSelectedListingId('');
     setShowCreatePost(false);
   };
 
@@ -373,6 +386,17 @@ export default function CommunityPosts({ userId }) {
                     Share with the community
                   </h3>
 
+                  <label className="mb-2 block text-sm font-semibold text-gray-800" htmlFor="post-type">Post type</label>
+                  <select id="post-type" value={newPostType} onChange={(event) => setNewPostType(event.target.value)} className="mb-3 w-full rounded-xl border border-gray-300 bg-white p-3 text-sm text-gray-900 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100">
+                    <option value="challenge">Challenge</option>
+                    <option value="tip">Tips & Advice</option>
+                    <option value="fact">Random Fact</option>
+                    <option value="recycle">Recycling Achievement</option>
+                    <option value="community">General Discussion</option>
+                    <option value="for-sale">For Sale / Marketplace</option>
+                  </select>
+                  {newPostType === 'for-sale' && <div className="mb-3"><label htmlFor="sale-price" className="mb-1 block text-sm font-semibold text-gray-800">Price (optional)</label><input id="sale-price" type="text" value={salePrice} onChange={(event) => setSalePrice(event.target.value)} placeholder="e.g. RM 25 or negotiable" className="w-full rounded-xl border border-gray-300 bg-white p-3 text-sm text-gray-900 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100" /></div>}
+                  {newPostType === 'for-sale' && <div className="mb-3"><label htmlFor="market-listing" className="mb-1 block text-sm font-semibold text-gray-800">Link an existing Market listing (optional)</label><select id="market-listing" value={selectedListingId} onChange={(event) => { const id = event.target.value; setSelectedListingId(id); const listing = marketListings.find((item) => String(item.id) === id); if (listing) { if (!salePrice.trim() && (listing.price != null || listing.isFree)) setSalePrice(listing.isFree ? 'Free' : `RM ${listing.price}`); } }} className="w-full rounded-xl border border-gray-300 bg-white p-3 text-sm text-gray-900 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100"><option value="">No linked listing</option>{marketListings.filter((listing) => (listing.status || 'AVAILABLE') !== 'SOLD').map((listing) => <option key={listing.id} value={listing.id}>{listing.title}</option>)}</select><p className="mt-1 text-xs text-gray-500">Readers can open the linked listing directly in Market.</p></div>}
                   <textarea
                       value={newPost}
                       onChange={(event) => setNewPost(event.target.value)}
@@ -391,6 +415,8 @@ export default function CommunityPosts({ userId }) {
                         type="button"
                         onClick={() => {
                           setNewPost('');
+                          setNewPostType('tip');
+                          setSalePrice('');
                           setShowCreatePost(false);
                         }}
                         className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
@@ -410,8 +436,12 @@ export default function CommunityPosts({ userId }) {
                 </div>
             )}
 
-            {/* Empty State */}
-            {posts.length === 0 ? (
+            {/* Feed filters */}
+            <div className="community-filter-panel rounded-2xl border p-4 shadow-sm">
+              <div className="mb-3 flex items-center justify-between gap-2"><div><p className="text-sm font-bold">Browse posts</p><p className="text-xs opacity-70">Filter the feed by topic</p></div><span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-800">{posts.filter((post) => postFilter === 'all' || post.type === postFilter).length} posts</span></div>
+              <div className="flex flex-wrap gap-2">{[{value:'all',label:'All posts'},{value:'challenge',label:'Challenges'},{value:'tip',label:'Tips'},{value:'fact',label:'Random facts'},{value:'recycle',label:'Recycling'},{value:'community',label:'Discussion'},{value:'for-sale',label:'For sale'}].map((option) => <button key={option.value} type="button" onClick={() => setPostFilter(option.value)} className={`community-filter-chip rounded-full border px-3 py-1.5 text-xs font-semibold transition ${postFilter === option.value ? 'is-selected' : ''}`}>{option.label}</button>)}</div>
+            </div>
+            {posts.filter((post) => postFilter === 'all' || post.type === postFilter).length === 0 ? (
                 <div className="rounded-2xl bg-white p-8 text-center shadow-lg border border-gray-100">
                   <p className="text-base font-medium text-gray-600">No posts yet</p>
                   <p className="mt-1 text-sm text-gray-500">
@@ -420,7 +450,7 @@ export default function CommunityPosts({ userId }) {
                 </div>
             ) : (
                 <div className="space-y-4">
-                  {posts.map((post) => (
+                  {posts.filter((post) => postFilter === 'all' || post.type === postFilter).map((post) => (
                       <div
                           key={post.id}
                           className="rounded-2xl bg-white p-5 shadow-lg border border-gray-100 transition hover:shadow-xl"
@@ -444,17 +474,9 @@ export default function CommunityPosts({ userId }) {
                           </div>
 
                           <div className="flex shrink-0 items-center gap-2">
-                            {post.type === 'challenge' && (
-                                <span className="rounded-full bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700">
-                          Challenge
-                        </span>
-                            )}
-
-                            {post.type === 'tip' && (
-                                <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
-                          Tip
-                        </span>
-                            )}
+                            <span className={`community-post-type rounded-full px-2.5 py-1 text-xs font-semibold type-${post.type || 'community'} ${({ challenge: 'bg-purple-100 text-purple-700', tip: 'bg-blue-100 text-blue-700', fact: 'bg-amber-100 text-amber-800', recycle: 'bg-green-100 text-green-700', community: 'bg-slate-100 text-slate-700', 'for-sale': 'bg-pink-100 text-pink-700' })[post.type] || 'bg-slate-100 text-slate-700'}`}>
+                              {({ challenge: 'Challenge', tip: 'Tips & Advice', fact: 'Random Fact', recycle: 'Recycling', community: 'Discussion', 'for-sale': 'For Sale' })[post.type] || 'Community'}
+                            </span>
 
                             {/* Options Dropdown Menu */}
                             <div className="relative">
@@ -560,9 +582,11 @@ export default function CommunityPosts({ userId }) {
                               </div>
                             </div>
                         ) : (
-                            <p className="mb-3 leading-relaxed text-sm text-gray-800 whitespace-pre-wrap break-words">
-                              {post.content}
-                            </p>
+                            <>
+                              {post.type === 'for-sale' && post.price && <p className="mb-2 inline-flex rounded-lg bg-pink-50 px-3 py-1.5 text-sm font-bold text-pink-700">Price: {post.price}</p>}
+                              {post.type === 'for-sale' && post.listingId && <Link to={`/market?listingId=${encodeURIComponent(post.listingId)}`} className="community-listing-link mb-3 inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-bold transition"><ShoppingBag size={16} /> View Market listing: {post.listingTitle || 'Open listing'} <span aria-hidden="true">→</span></Link>}
+                              <p className="mb-3 leading-relaxed text-sm text-gray-800 whitespace-pre-wrap break-words">{post.content}</p>
+                            </>
                         )}
 
                         {/* Optional Image */}
