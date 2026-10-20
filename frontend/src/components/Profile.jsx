@@ -18,7 +18,8 @@ import {
   X,
   Save,
   CheckCircle,
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
+  ChevronDown,
+  Sparkles,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { recycleApi } from '../api/api';
@@ -42,7 +43,6 @@ export default function Profile({ user, onLogout, onEditProfile, userId }) {
       try {
         const response = await fetch(
           `${API_BASE}/ideas/saved?userId=${encodeURIComponent(userId || 'demo-user')}`
-=======
 // Points awarded by successful recycle/reuse actions.
 const RECYCLE_POINTS = 3;
 const REUSE_POINTS = 5;
@@ -93,6 +93,22 @@ const BADGES = [
     icon: '🌍',
     requirement: (stats) => stats.totalPoints >= 500,
   },
+ ];
+
+const AVATAR_FRAMES = [
+  { id: 'bronze', name: 'Bronze', threshold: 10, color: 'border-amber-700', ring: 'ring-amber-700', description: 'Earn 10 eco points.' },
+  { id: 'silver', name: 'Silver', threshold: 50, color: 'border-slate-400', ring: 'ring-slate-400', description: 'Earn 50 eco points.' },
+  { id: 'gold', name: 'Gold', threshold: 100, color: 'border-yellow-400', ring: 'ring-yellow-400', description: 'Earn 100 eco points.' },
+  { id: 'diamond', name: 'Diamond', threshold: 500, color: 'border-cyan-300', ring: 'ring-cyan-300', description: 'Earn 500 eco points.' },
+  { id: 'platinum', name: 'Platinum', threshold: 250, color: 'border-violet-300', ring: 'ring-violet-300', description: 'Earn 250 eco points.' },
+];
+
+const PROFILE_TITLES = [
+  { name: 'Eco Rookie', threshold: 0, description: 'Your journey starts here.' },
+  { name: 'Green Guardian', threshold: 50, description: 'Earn 50 eco points.' },
+  { name: 'Planet Protector', threshold: 100, description: 'Earn 100 eco points.' },
+  { name: 'Earth Champion', threshold: 250, description: 'Earn 250 eco points.' },
+  { name: 'Eco Legend', threshold: 500, description: 'Earn 500 eco points.' },
 ];
 
 export default function Profile({
@@ -109,6 +125,8 @@ export default function Profile({
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [previewImage, setPreviewImage] = useState('');
+  const [showFrameDetails, setShowFrameDetails] = useState(false);
+  const [showTitleDetails, setShowTitleDetails] = useState(false);
 
   const me = userId || 'demo-user';
 
@@ -255,6 +273,11 @@ export default function Profile({
         reusedItems,
       })
   );
+
+  const unlockedFrames = AVATAR_FRAMES.filter((frame) => totalPoints >= frame.threshold);
+  const activeFrame = unlockedFrames.reduce((best, frame) => !best || frame.threshold > best.threshold ? frame : best, null);
+  const unlockedTitles = PROFILE_TITLES.filter((title) => totalPoints >= title.threshold);
+  const activeTitle = unlockedTitles[unlockedTitles.length - 1] || PROFILE_TITLES[0];
 
   const updateField = (field, value) => {
     setForm((previous) => ({
@@ -525,7 +548,7 @@ export default function Profile({
 
               <div className="my-6 flex flex-col items-center text-center">
                 <div className="relative">
-                  <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full bg-gray-100 ring-4 ring-green-100">
+                  <div className={`flex h-28 w-28 items-center justify-center overflow-hidden rounded-full bg-gray-100 ring-4 ${activeFrame ? activeFrame.ring : 'ring-green-100'} ${activeFrame ? 'border-4 ' + activeFrame.color : ''}`}>
                     {(user?.profileImage || previewImage) ? (
                         <img
                             src={user?.profileImage || previewImage}
@@ -550,6 +573,26 @@ export default function Profile({
                 <h3 className="mt-4 text-xl font-bold text-gray-900">
                   {user?.fullName || displayName}
                 </h3>
+                <div className="mt-2 flex flex-wrap justify-center gap-1.5">
+                  <div className="relative">
+                    <button type="button" onClick={() => setShowFrameDetails((v) => !v)} title={activeFrame ? `${activeFrame.name} frame — ${activeFrame.description}` : 'Unlock your first avatar frame at 10 eco points'} className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-bold shadow-sm transition hover:shadow ${activeFrame ? `${activeFrame.color} bg-white text-gray-800` : 'border-gray-300 bg-gray-100 text-gray-500'}`}>
+                      <Sparkles size={14} /> {activeFrame ? `${activeFrame.name} Frame` : 'Avatar Frames'} <ChevronDown size={13} />
+                    </button>
+                    {showFrameDetails && <div className="absolute left-1/2 top-full z-30 mt-2 w-64 -translate-x-1/2 rounded-xl border border-gray-200 bg-white p-3 text-left shadow-xl">
+                      <p className="mb-2 text-sm font-bold text-gray-900">Avatar Frames</p>
+                      {AVATAR_FRAMES.map((frame) => { const unlocked = totalPoints >= frame.threshold; return <div key={frame.id} className="flex items-start gap-2 border-t border-gray-100 py-2"><span className={`mt-0.5 h-4 w-4 shrink-0 rounded-full border-2 ${frame.color} ${unlocked ? 'bg-green-100' : 'bg-gray-100'}`} /><div className="min-w-0 flex-1"><p className="text-xs font-semibold text-gray-900">{frame.name} {unlocked ? '· Unlocked' : '· Locked'}</p><p className="text-[11px] text-gray-500">{frame.description}</p></div></div>; })}
+                    </div>}
+                  </div>
+                  <div className="relative">
+                    <button type="button" onClick={() => setShowTitleDetails((v) => !v)} title={`${activeTitle.name} — ${activeTitle.description}`} className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-1 text-[11px] font-bold text-green-800 shadow-sm transition hover:shadow">
+                      <Award size={14} /> {activeTitle.name} <ChevronDown size={13} />
+                    </button>
+                    {showTitleDetails && <div className="absolute left-1/2 top-full z-30 mt-2 w-64 -translate-x-1/2 rounded-xl border border-gray-200 bg-white p-3 text-left shadow-xl">
+                      <p className="mb-2 text-sm font-bold text-gray-900">Titles</p>
+                      {PROFILE_TITLES.map((title) => { const unlocked = totalPoints >= title.threshold; return <div key={title.name} className="border-t border-gray-100 py-2"><p className="text-xs font-semibold text-gray-900">{title.name} {unlocked ? '· Unlocked' : '· Locked'}</p><p className="text-[11px] text-gray-500">{title.description}</p></div>; })}
+                    </div>}
+                  </div>
+                </div>
 
                 {user?.bio && (
                     <p className="mt-2 whitespace-pre-wrap text-sm text-gray-600">
