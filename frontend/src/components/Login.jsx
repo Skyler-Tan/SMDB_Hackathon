@@ -1,64 +1,22 @@
-<<<<<<< HEAD
 import { useState } from 'react';
-import { User, Lock, Camera } from 'lucide-react';
-=======
-
-import { useState } from 'react';
-import { User, Lock, Mail, Phone } from 'lucide-react';
-
-const ACCOUNTS_KEY = '34district_accounts';
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
+import { User, Lock, Mail, Phone, Loader2 } from 'lucide-react';
+import { authApi } from '../api/api';
 
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-<<<<<<< HEAD
-  const [isRegister, setIsRegister] = useState(false);
-  const [error, setError] = useState('');
-=======
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [isRegister, setIsRegister] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  const getAccounts = () => {
-    try {
-      return JSON.parse(localStorage.getItem(ACCOUNTS_KEY) || '[]');
-    } catch {
-      return [];
-    }
-  };
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (busy) return;
+
     setError('');
-<<<<<<< HEAD
-
-    if (!username || !password) {
-      setError('Please fill in all fields');
-      return;
-    }
-
-    // For demo purposes, accept any login
-    const user = {
-      username,
-      points: 100,
-      recycledItems: 0,
-      reusedItems: 0
-    };
-    
-    onLogin(user);
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-green-600">34district</h1>
-          <p className="text-gray-600 mt-2">
-=======
     setSuccess('');
 
     const cleanUsername = username.trim();
@@ -70,8 +28,6 @@ export default function Login({ onLogin }) {
       setError('Please enter your username and password.');
       return;
     }
-
-    const accounts = getAccounts();
 
     // SIGN UP
     if (isRegister) {
@@ -101,83 +57,56 @@ export default function Login({ onLogin }) {
         return;
       }
 
-      const usernameExists = accounts.some(
-        (account) =>
-          account.username.toLowerCase() === cleanUsername.toLowerCase()
-      );
-
-      if (usernameExists) {
-        setError('This username is already registered. Please log in.');
-        return;
-      }
-
-      const emailExists = accounts.some(
-        (account) => account.email === cleanEmail
-      );
-
-      if (emailExists) {
-        setError('This email is already registered.');
-        return;
-      }
-
-      const phoneExists = accounts.some(
-        (account) =>
-          account.phone.replace(/[\s()-]/g, '') === normalizedPhone
-      );
-
-      if (phoneExists) {
-        setError('This phone number is already registered.');
-        return;
-      }
-
-      const newAccount = {
-        username: cleanUsername,
-        password,
-        email: cleanEmail,
-        phone: cleanPhone,
-        points: 100,
-        recycledItems: 0,
-        reusedItems: 0,
-      };
+      setBusy(true);
 
       try {
-        localStorage.setItem(
-          ACCOUNTS_KEY,
-          JSON.stringify([...accounts, newAccount])
+        // The server checks for duplicate username, email and phone.
+        await authApi.register({
+          username: cleanUsername,
+          email: cleanEmail,
+          phone: normalizedPhone,
+          password,
+        });
+
+        // Return to Login instead of entering the app.
+        setIsRegister(false);
+        setPassword('');
+        setEmail('');
+        setPhone('');
+        setSuccess('Sign up successful! Please log in with your new account.');
+      } catch (err) {
+        console.error('Sign up failed:', err);
+        setError(
+          err.response?.data?.message ||
+            'Could not reach the server. Please try again in a moment.'
         );
-      } catch {
-        setError('Unable to save your account in this browser.');
-        return;
+      } finally {
+        setBusy(false);
       }
 
-      // Return to Login instead of entering the app.
-      setIsRegister(false);
-      setPassword('');
-      setEmail('');
-      setPhone('');
-      setSuccess('Sign up successful! Please log in with your new account.');
       return;
     }
 
     // LOGIN
-    const account = accounts.find(
-      (savedAccount) =>
-        savedAccount.username.toLowerCase() === cleanUsername.toLowerCase()
-    );
+    setBusy(true);
 
-    if (!account) {
-      setError('Username not found. Please sign up first.');
-      return;
+    try {
+      const response = await authApi.login({
+        username: cleanUsername,
+        password,
+      });
+
+      // Expected response: { token, user }. App.jsx stores the token.
+      onLogin(response.data);
+    } catch (err) {
+      console.error('Login failed:', err);
+      setError(
+        err.response?.data?.message ||
+          'Could not reach the server. Please try again in a moment.'
+      );
+    } finally {
+      setBusy(false);
     }
-
-    if (account.password !== password) {
-      setError('Incorrect password. Please try again.');
-      return;
-    }
-
-    // Only enter the app after credentials match.
-    const { password: savedPassword, ...user } = account;
-    onLogin(user);
   };
 
   const switchMode = () => {
@@ -191,30 +120,14 @@ export default function Login({ onLogin }) {
     <div className="flex min-h-screen items-center justify-center bg-gray-100 p-6">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-green-600">
-            34district
-          </h1>
+          <h1 className="text-3xl font-bold text-green-600">34district</h1>
           <p className="mt-2 text-gray-600">
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
             {isRegister ? 'Create your account' : 'Welcome back'}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-<<<<<<< HEAD
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Username
-            </label>
-            <div className="relative">
-              <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="Enter username"
-=======
             <label
               htmlFor="username"
               className="mb-2 block text-sm font-medium text-gray-700"
@@ -234,33 +147,13 @@ export default function Login({ onLogin }) {
                 autoComplete="username"
                 maxLength={30}
                 required
+                disabled={busy}
                 placeholder="Enter username"
-                className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-green-500"
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
+                className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
               />
             </div>
           </div>
 
-<<<<<<< HEAD
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Password
-            </label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                placeholder="Enter password"
-              />
-            </div>
-          </div>
-
-          {error && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-=======
           {isRegister && (
             <>
               <div>
@@ -283,8 +176,9 @@ export default function Login({ onLogin }) {
                     autoComplete="email"
                     maxLength={254}
                     required
+                    disabled={busy}
                     placeholder="you@example.com"
-                    className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
                   />
                 </div>
               </div>
@@ -309,8 +203,9 @@ export default function Login({ onLogin }) {
                     autoComplete="tel"
                     maxLength={20}
                     required
+                    disabled={busy}
                     placeholder="0123456789"
-                    className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
                   />
                 </div>
                 <p className="mt-1 text-xs text-gray-500">
@@ -340,8 +235,9 @@ export default function Login({ onLogin }) {
                 autoComplete={isRegister ? 'new-password' : 'current-password'}
                 minLength={isRegister ? 8 : undefined}
                 required
+                disabled={busy}
                 placeholder="Enter password"
-                className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-green-500"
+                className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
               />
             </div>
             {isRegister && (
@@ -356,16 +252,10 @@ export default function Login({ onLogin }) {
               role="alert"
               className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700"
             >
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
               {error}
             </div>
           )}
 
-<<<<<<< HEAD
-          <button
-            type="submit"
-            className="w-full bg-green-600 hover:bg-green-700 text-white py-3 px-6 rounded-lg font-medium transition"
-=======
           {success && (
             <div
               role="status"
@@ -377,26 +267,30 @@ export default function Login({ onLogin }) {
 
           <button
             type="submit"
-            className="w-full rounded-lg bg-green-600 px-6 py-3 font-medium text-white transition hover:bg-green-700"
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
+            disabled={busy}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-6 py-3 font-medium text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isRegister ? 'Sign Up' : 'Login'}
+            {busy && <Loader2 size={18} className="animate-spin" />}
+            {busy
+              ? 'Please wait...'
+              : isRegister
+                ? 'Sign Up'
+                : 'Login'}
           </button>
+
+          {busy && (
+            <p className="text-center text-xs text-gray-500">
+              The server may take a few seconds to wake up.
+            </p>
+          )}
         </form>
 
         <div className="mt-6 text-center">
           <button
-<<<<<<< HEAD
-            onClick={() => setIsRegister(!isRegister)}
-            className="text-green-600 hover:text-green-700 font-medium"
-          >
-            {isRegister ? 'Already have an account? Login' : "Don't have an account? Sign Up"}
-          </button>
-        </div>
-=======
             type="button"
             onClick={switchMode}
-            className="font-medium text-green-600 hover:text-green-700"
+            disabled={busy}
+            className="font-medium text-green-600 hover:text-green-700 disabled:opacity-60"
           >
             {isRegister
               ? 'Already have an account? Login'
@@ -409,7 +303,6 @@ export default function Login({ onLogin }) {
             Email and phone verification are not enabled yet.
           </p>
         )}
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
       </div>
     </div>
   );

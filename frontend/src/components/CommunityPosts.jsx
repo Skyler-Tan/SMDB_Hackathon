@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-
-=======
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
 import { useState, useEffect } from 'react';
 import {
   Heart,
@@ -14,13 +10,10 @@ import {
   Pencil,
   MoreVertical,
   Send,
-<<<<<<< HEAD
-=======
   Users,
   Sparkles,
   MessageSquare,
   ShoppingBag,
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
 } from 'lucide-react';
 import { recycleApi, marketApi } from '../api/api';
 import { Link } from 'react-router-dom';
@@ -33,7 +26,6 @@ export default function CommunityPosts({ userId }) {
       return [];
     }
   });
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
   const [loading, setLoading] = useState(true);
   const [newPost, setNewPost] = useState('');
   const [newPostType, setNewPostType] = useState('tip');
@@ -178,7 +170,7 @@ export default function CommunityPosts({ userId }) {
                 : post
         )
     );
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
+
   };
 
   const handleShare = async (post) => {

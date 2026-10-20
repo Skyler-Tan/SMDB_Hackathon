@@ -6,11 +6,8 @@ import { useSearchParams } from 'react-router-dom';
 import ListingCard from './ListingCard';
 import ListingForm from './ListingForm';
 import ListingDetail from './ListingDetail';
-<<<<<<< HEAD
-import { CATEGORIES, STATUS } from './marketConstants';
-=======
+
 import { CATEGORIES, STATUS } from './Marketconstants';
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
 
 export default function Marketplace({ userId, user, prefill = null, onShareToCommunity }) {
   const me = userId || 'demo-user';

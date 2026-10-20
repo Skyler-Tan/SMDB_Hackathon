@@ -1,9 +1,5 @@
 import { MapPin, Package } from 'lucide-react';
-<<<<<<< HEAD
-import { formatPrice, timeAgo, STATUS } from './marketConstants';
-=======
 import { formatPrice, timeAgo, STATUS } from './Marketconstants';
->>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
 
 export default function ListingCard({ listing, onOpen }) {
   const photo = listing.photos?.[0];
