@@ -11,11 +11,23 @@ import {
   X,
   ExternalLink,
   Bookmark,
+  Leaf,
+  CheckCircle,
+  Award,
 } from 'lucide-react';
+import { recycleApi } from '../api/api';
+import { logReuseActivity } from './ReuseHistory';
 
 const DIFFICULTIES = ['All', 'Easy', 'Medium', 'Hard'];
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const REUSE_POINTS = 5;
+
+// In-memory caches (no browser storage). They keep the loaded ideas and the
+// confirmed ideas while the app is open, so reopening Reuse does not refetch.
+// A page refresh or closing the app clears them.
+const guidesCache = new Map();
+const confirmedCache = new Map();
 
 function getYoutubeEmbedUrl(url) {
   if (!url) return null;
@@ -27,19 +39,13 @@ function getYoutubeEmbedUrl(url) {
 
     if (host === 'youtu.be' || host.endsWith('.youtu.be')) {
       videoId = parsed.pathname.split('/').filter(Boolean)[0];
-    } else if (
-      host === 'youtube.com' ||
-      host.endsWith('.youtube.com')
-    ) {
+    } else if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
       if (parsed.pathname === '/watch') {
         videoId = parsed.searchParams.get('v');
       } else {
         const parts = parsed.pathname.split('/').filter(Boolean);
 
-        if (
-          ['embed', 'shorts', 'live'].includes(parts[0]) &&
-          parts[1]
-        ) {
+        if (['embed', 'shorts', 'live'].includes(parts[0]) && parts[1]) {
           videoId = parts[1];
         }
       }
@@ -55,7 +61,6 @@ function getYoutubeEmbedUrl(url) {
   }
 }
 
-// Identifies an idea for one item, so the same idea is never saved twice.
 function buildIdeaKey(itemId, idea) {
   const base = (
     (idea.sourceUrl && idea.sourceUrl.trim()) ||
@@ -75,91 +80,108 @@ async function responseError(response, fallback) {
 }
 
 export default function Reuse({ item, userId, onClose }) {
-  const [guides, setGuides] = useState([]);
-  const [selectedGuide, setSelectedGuide] = useState(null);
-  const [selectedDifficulty, setSelectedDifficulty] = useState('All');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  // Saved ideas (stored in the database). Only used to show Save/Saved state.
-  const [savedIdeas, setSavedIdeas] = useState([]);
-  const [savingKey, setSavingKey] = useState(null);
-  const [actionError, setActionError] = useState('');
-
   const me = userId || 'demo-user';
   const itemName = item?.name || item?.itemName || 'this item';
   const material = item?.material || '';
   const itemId = item?.id || item?._id || item?.itemId;
+  const cacheKey = `${me}|${itemId}`;
 
-  const loadGuides = useCallback(async () => {
-    if (!itemId) {
-      setGuides([]);
-      setError(
-        'The scanned item ID is missing. Please scan and confirm the item again.'
-      );
-      setLoading(false);
-      return;
-    }
+  // Start from the cache so going back/reopening shows the same ideas.
+  const [guides, setGuides] = useState(() => guidesCache.get(cacheKey) || []);
+  const [loading, setLoading] = useState(() => !guidesCache.has(cacheKey));
+  const [confirmedIdeas, setConfirmedIdeas] = useState(
+    () => confirmedCache.get(cacheKey) || {}
+  );
 
-    setLoading(true);
-    setError('');
-    setSelectedGuide(null);
+  const [selectedGuide, setSelectedGuide] = useState(null);
+  const [selectedDifficulty, setSelectedDifficulty] = useState('All');
+  const [error, setError] = useState('');
 
-    try {
-      const response = await fetch(`${API_BASE}/reuse`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          itemId,
-          userId: me,
-          difficulty: 'all',
-        }),
-      });
+  const [savedIdeas, setSavedIdeas] = useState([]);
+  const [savingKey, setSavingKey] = useState(null);
+  const [actionError, setActionError] = useState('');
 
-      if (!response.ok) {
-        let message = `Unable to load reuse ideas (HTTP ${response.status}).`;
+  const [pointsEarned, setPointsEarned] = useState(0);
+  const [pointsMessage, setPointsMessage] = useState('');
+  const [confirmingKey, setConfirmingKey] = useState(null);
 
-        try {
-          const body = await response.json();
-          message = body.message || body.error || message;
-        } catch {
-          // Keep the default error message.
-        }
+  // Keep confirmed ideas in memory for this user and item.
+  useEffect(() => {
+    confirmedCache.set(cacheKey, confirmedIdeas);
+  }, [cacheKey, confirmedIdeas]);
 
-        throw new Error(message);
+  // Load reuse ideas. Uses the cache unless a fresh search is requested.
+  const loadGuides = useCallback(
+    async (force = false) => {
+      if (!itemId) {
+        setGuides([]);
+        setError(
+          'The scanned item ID is missing. Please scan and confirm the item again.'
+        );
+        setLoading(false);
+        return;
       }
 
-      const data = await response.json();
-      const ideas = Array.isArray(data?.ideas) ? data.ideas : [];
+      if (!force && guidesCache.has(cacheKey)) {
+        setGuides(guidesCache.get(cacheKey));
+        setLoading(false);
+        return;
+      }
 
-      const mapped = ideas.map((idea, index) => ({
-        ...idea,
-        id: `${idea.sourceUrl || idea.title || 'idea'}-${index}`,
-        materials: Array.isArray(idea.materials) ? idea.materials : [],
-        tools: Array.isArray(idea.tools) ? idea.tools : [],
-        steps: Array.isArray(idea.steps) ? idea.steps : [],
-        embedUrl: getYoutubeEmbedUrl(idea.tutorialUrl),
-      }));
+      setLoading(true);
+      setError('');
+      setSelectedGuide(null);
 
-      setGuides(mapped);
-    } catch (err) {
-      console.error('Failed to load reuse ideas:', err);
-      setGuides([]);
-      setError(
-        err.message || 'Unable to load reuse ideas. Please try again.'
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [itemId, me]);
+      try {
+        const response = await fetch(`${API_BASE}/reuse`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            itemId,
+            userId: me,
+            difficulty: 'all',
+          }),
+        });
+
+        if (!response.ok) {
+          throw await responseError(
+            response,
+            `Unable to load reuse ideas (HTTP ${response.status}).`
+          );
+        }
+
+        const data = await response.json();
+        const ideas = Array.isArray(data?.ideas) ? data.ideas : [];
+
+        const mapped = ideas.map((idea, index) => ({
+          ...idea,
+          id: `${idea.sourceUrl || idea.title || 'idea'}-${index}`,
+          materials: Array.isArray(idea.materials) ? idea.materials : [],
+          tools: Array.isArray(idea.tools) ? idea.tools : [],
+          steps: Array.isArray(idea.steps) ? idea.steps : [],
+          embedUrl: getYoutubeEmbedUrl(idea.tutorialUrl),
+        }));
+
+        guidesCache.set(cacheKey, mapped);
+        setGuides(mapped);
+      } catch (err) {
+        console.error('Failed to load reuse ideas:', err);
+        setGuides([]);
+        setError(err.message || 'Unable to load reuse ideas. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [itemId, me, cacheKey]
+  );
 
   useEffect(() => {
     loadGuides();
   }, [loadGuides]);
 
-  // Load this user's saved ideas so the buttons show the right state.
+  // Load saved bookmarks.
   const loadSaved = useCallback(async () => {
     try {
       const response = await fetch(
@@ -186,16 +208,17 @@ export default function Reuse({ item, userId, onClose }) {
   const findSaved = (guide) =>
     savedIdeas.find((saved) => saved.ideaKey === keyFor(guide));
 
-  // Save the idea, or remove it if it is already saved.
+  // Saving and removing bookmarks does not award points.
   const toggleSave = async (guide) => {
-    if (savingKey) return;
+    if (savingKey || confirmingKey) return;
 
     const key = keyFor(guide);
     setSavingKey(key);
     setActionError('');
+    setPointsMessage('');
 
     try {
-      const existing = savedIdeas.find((saved) => saved.ideaKey === key);
+      const existing = findSaved(guide);
 
       if (existing) {
         const response = await fetch(
@@ -213,10 +236,16 @@ export default function Reuse({ item, userId, onClose }) {
         setSavedIdeas((previous) =>
           previous.filter((saved) => saved.id !== existing.id)
         );
+
+        setPointsMessage(
+          'Idea removed from saved ideas. Your earned points remain unchanged.'
+        );
       } else {
         const response = await fetch(`${API_BASE}/ideas/saved`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+          },
           body: JSON.stringify({
             userId: me,
             ideaKey: key,
@@ -247,6 +276,10 @@ export default function Reuse({ item, userId, onClose }) {
           saved,
           ...previous.filter((entry) => entry.id !== saved.id),
         ]);
+
+        setPointsMessage(
+          'Idea saved! Complete the project and select Confirm Reuse to earn points.'
+        );
       }
     } catch (err) {
       console.error('Failed to update saved ideas:', err);
@@ -255,6 +288,53 @@ export default function Reuse({ item, userId, onClose }) {
       );
     } finally {
       setSavingKey(null);
+    }
+  };
+
+  // Confirm completed reuse project, award points, and record it in history.
+  const confirmReuse = async (e, guide) => {
+    if (e) e.stopPropagation();
+    const key = keyFor(guide);
+
+    if (confirmedIdeas[key] || confirmingKey === key) return;
+
+    setConfirmingKey(key);
+    setActionError('');
+    setPointsMessage('');
+
+    let awarded = REUSE_POINTS;
+
+    try {
+      const response = await recycleApi.reuse({
+        userId: me,
+        itemId: guide.itemId || itemId,
+        ideaKey: key,
+        title: guide.title || 'DIY Reuse Idea',
+        points: REUSE_POINTS,
+      });
+
+      const data = response.data || {};
+      awarded = Number(data.pointsAwarded ?? data.points ?? REUSE_POINTS);
+      setPointsEarned((prev) => prev + awarded);
+    } catch (err) {
+      console.warn('Backend endpoint unavailable. Updating locally:', err);
+      setPointsEarned((prev) => prev + REUSE_POINTS);
+    } finally {
+      try {
+        await logReuseActivity(me, {
+          itemName: guide.itemName || itemName,
+          idea: guide.title || 'DIY Reuse Idea',
+          points: awarded,
+        });
+      } catch (logErr) {
+        console.error('Failed to log reuse activity:', logErr);
+      }
+
+      setConfirmedIdeas((previous) => ({
+        ...previous,
+        [key]: { points: awarded, finalProduct: guide.finalProduct || '' },
+      }));
+      setConfirmingKey(null);
     }
   };
 
@@ -273,7 +353,6 @@ export default function Reuse({ item, userId, onClose }) {
             selectedDifficulty.toLowerCase()
         );
 
-  // One idea in the list, with its own Save button.
   const renderGuideCard = (guide) => {
     const saved = Boolean(findSaved(guide));
     const busy = savingKey === keyFor(guide);
@@ -284,6 +363,7 @@ export default function Reuse({ item, userId, onClose }) {
           type="button"
           onClick={() => {
             setActionError('');
+            setPointsMessage('');
             setSelectedGuide(guide);
           }}
           className="w-full rounded-xl border border-gray-200 bg-gray-50 p-4 pb-14 text-left transition hover:border-green-300 hover:bg-green-50"
@@ -331,7 +411,7 @@ export default function Reuse({ item, userId, onClose }) {
         <button
           type="button"
           onClick={() => toggleSave(guide)}
-          disabled={busy}
+          disabled={Boolean(savingKey || confirmingKey)}
           aria-pressed={saved}
           aria-label={saved ? 'Remove from saved ideas' : 'Save idea'}
           className={`absolute bottom-3 right-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:opacity-60 ${
@@ -351,9 +431,14 @@ export default function Reuse({ item, userId, onClose }) {
     );
   };
 
+  // Detailed guide.
   if (selectedGuide) {
     const selectedSaved = Boolean(findSaved(selectedGuide));
-    const selectedBusy = savingKey === keyFor(selectedGuide);
+    const selectedKey = keyFor(selectedGuide);
+    const selectedBusy = savingKey === selectedKey;
+    const selectedConfirming = confirmingKey === selectedKey;
+    const selectedConfirmed = Boolean(confirmedIdeas[selectedKey]);
+    const selectedReward = confirmedIdeas[selectedKey];
 
     return (
       <div className="mx-auto w-full max-w-2xl space-y-5 rounded-2xl bg-white p-5 shadow-lg sm:p-6">
@@ -369,9 +454,7 @@ export default function Reuse({ item, userId, onClose }) {
         <div>
           <div className="mb-2 flex items-center gap-2 text-green-700">
             <Wrench size={22} />
-            <span className="text-sm font-semibold">
-              DIY REUSE GUIDE
-            </span>
+            <span className="text-sm font-semibold">DIY REUSE GUIDE</span>
           </div>
 
           <h2 className="text-2xl font-bold text-gray-900">
@@ -395,12 +478,11 @@ export default function Reuse({ item, userId, onClose }) {
           )}
         </div>
 
-        {/* Save button on the step-by-step details page */}
-        <div className="space-y-2">
+        <div className="space-y-3">
           <button
             type="button"
             onClick={() => toggleSave(selectedGuide)}
-            disabled={selectedBusy}
+            disabled={Boolean(savingKey || confirmingKey)}
             aria-pressed={selectedSaved}
             className={`flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold transition disabled:opacity-60 ${
               selectedSaved
@@ -418,6 +500,62 @@ export default function Reuse({ item, userId, onClose }) {
             )}
             {selectedSaved ? 'Saved (tap to remove)' : 'Save idea'}
           </button>
+
+          <button
+            type="button"
+            onClick={(e) => confirmReuse(e, selectedGuide)}
+            disabled={Boolean(confirmingKey || savingKey) || selectedConfirmed}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-600 px-5 py-3 font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {selectedConfirming ? (
+              <>
+                <Loader2 size={18} className="animate-spin" />
+                Confirming Reuse...
+              </>
+            ) : selectedConfirmed ? (
+              <>
+                <CheckCircle size={18} />
+                Reuse Confirmed
+              </>
+            ) : (
+              <>
+                <Leaf size={18} />
+                Confirm Reuse (+{REUSE_POINTS} points)
+              </>
+            )}
+          </button>
+
+          {selectedConfirmed ? (
+            <div className="rounded-xl border border-green-200 bg-green-50 p-5 text-center">
+              <Award size={32} className="mx-auto mb-2 text-yellow-500" />
+              <p className="text-sm font-medium text-green-700">
+                Reuse points earned
+              </p>
+              <p className="text-4xl font-extrabold text-green-700">
+                +{selectedReward?.points ?? REUSE_POINTS}
+              </p>
+              <p className="mt-2 text-sm text-gray-600">
+                Every reuse grows a leaf on your eco tree!
+              </p>
+              {pointsEarned > 0 && (
+                <p className="mt-3 flex items-center justify-center gap-2 text-sm font-semibold text-green-700">
+                  <Leaf size={16} />+{pointsEarned} reuse points earned this
+                  session
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-center text-xs text-gray-500">
+              Confirm only after you have completed this reuse project.
+            </p>
+          )}
+
+          {pointsMessage && (
+            <p className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+              <CheckCircle size={17} />
+              {pointsMessage}
+            </p>
+          )}
 
           {actionError && (
             <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -462,8 +600,8 @@ export default function Reuse({ item, userId, onClose }) {
               No matching YouTube video found
             </p>
             <p className="mt-1 text-sm text-amber-800">
-              We couldn't find a valid YouTube video for this idea.
-              We won't display an ordinary website as a video tutorial.
+              We couldn't find a valid YouTube video for this idea. We won't
+              display an ordinary website as a video tutorial.
             </p>
           </div>
         )}
@@ -523,8 +661,8 @@ export default function Reuse({ item, userId, onClose }) {
             </ol>
           ) : (
             <p className="text-sm text-gray-600">
-              The search results did not provide step-by-step instructions.
-              Use the video tutorial if one is available.
+              The search results did not provide step-by-step instructions. Use
+              the video tutorial if one is available.
             </p>
           )}
         </section>
@@ -552,6 +690,7 @@ export default function Reuse({ item, userId, onClose }) {
     );
   }
 
+  // Main ideas list.
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6 rounded-2xl bg-white p-5 shadow-lg sm:p-6">
       <div className="flex items-start justify-between gap-3">
@@ -563,13 +702,9 @@ export default function Reuse({ item, userId, onClose }) {
             </span>
           </div>
 
-          <h2 className="text-2xl font-bold text-gray-900">
-            Reuse Ideas
-          </h2>
+          <h2 className="text-2xl font-bold text-gray-900">Reuse Ideas</h2>
 
-          <p className="mt-1 text-gray-600">
-            DIY projects for {itemName}
-          </p>
+          <p className="mt-1 text-gray-600">DIY projects for {itemName}</p>
 
           {material && (
             <span className="mt-3 inline-flex rounded-full bg-green-100 px-3 py-1 text-sm capitalize text-green-800">
@@ -587,6 +722,23 @@ export default function Reuse({ item, userId, onClose }) {
           <X size={20} />
         </button>
       </div>
+
+      {pointsEarned > 0 && (
+        <div className="flex items-center gap-3 rounded-xl border border-green-200 bg-green-50 p-4">
+          <div className="rounded-full bg-green-100 p-2">
+            <Leaf size={22} className="text-green-700" />
+          </div>
+
+          <div>
+            <p className="font-bold text-green-800">
+              +{pointsEarned} reuse points earned!
+            </p>
+            <p className="text-sm text-green-700">
+              Keep giving items a second life.
+            </p>
+          </div>
+        </div>
+      )}
 
       {!loading && !error && (
         <div className="sticky top-0 z-10 -mx-1 rounded-xl bg-white px-1 pb-2 pt-1">
@@ -631,13 +783,12 @@ export default function Reuse({ item, userId, onClose }) {
               <p className="font-medium text-red-800">
                 Could not load reuse ideas
               </p>
-              <p className="mt-1 break-words text-sm text-red-700">
-                {error}
-              </p>
+
+              <p className="mt-1 break-words text-sm text-red-700">{error}</p>
 
               <button
                 type="button"
-                onClick={loadGuides}
+                onClick={() => loadGuides(true)}
                 className="mt-3 inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
               >
                 <RefreshCw size={16} />
@@ -653,6 +804,13 @@ export default function Reuse({ item, userId, onClose }) {
           {actionError && (
             <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {actionError}
+            </p>
+          )}
+
+          {pointsMessage && (
+            <p className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+              <CheckCircle size={17} />
+              {pointsMessage}
             </p>
           )}
 
@@ -672,12 +830,15 @@ export default function Reuse({ item, userId, onClose }) {
           {filteredGuides.length === 0 ? (
             <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center">
               <Wrench className="mx-auto mb-3 h-10 w-10 text-gray-400" />
+
               <h3 className="font-semibold text-gray-800">
-                No {selectedDifficulty === 'All'
+                No{' '}
+                {selectedDifficulty === 'All'
                   ? ''
                   : `${selectedDifficulty.toLowerCase()} `}
                 reuse ideas found
               </h3>
+
               <p className="mt-2 text-sm text-gray-500">
                 {selectedDifficulty === 'All'
                   ? `No suitable projects were returned for ${itemName}.`
@@ -696,7 +857,7 @@ export default function Reuse({ item, userId, onClose }) {
 
               <button
                 type="button"
-                onClick={loadGuides}
+                onClick={() => loadGuides(true)}
                 className="mt-4 ml-2 inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
                 <RefreshCw size={16} />

@@ -12,12 +12,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { marketApi } from '../api/api';
-import {
-  formatPrice,
-  timeAgo,
-  STATUS,
-  REPORT_REASONS,
-} from './marketConstants';
+import { timeAgo, STATUS, REPORT_REASONS } from './Marketconstants';
 
 export default function ListingDetail({
   listing,
@@ -39,7 +34,12 @@ export default function ListingDetail({
 
   const photos = listing.photos || [];
   const status = listing.status || STATUS.AVAILABLE;
-  const free = formatPrice(listing) === 'Free';
+
+  // The listing's price is now expressed in eco points.
+  const points = Number(listing.points ?? listing.price ?? 0);
+  const free = Boolean(listing.isFree) || !points;
+  const priceLabel = free ? 'Free' : `${points} pts`;
+
   const phoneDigits = String(listing.contact || '').replace(/[^\d+]/g, '');
 
   const changeStatus = async (next) => {
@@ -156,7 +156,7 @@ export default function ListingDetail({
             free ? 'text-green-700' : 'text-gray-900'
           }`}
         >
-          {formatPrice(listing)}
+          {priceLabel}
         </p>
         <h2 className="text-xl font-semibold text-gray-900">{listing.title}</h2>
 
@@ -220,7 +220,8 @@ export default function ListingDetail({
                 {listing.contact}
               </a>
               <p className="mt-2 text-xs text-gray-500">
-                Meet in a public place and check the item before paying.
+                Meet in a public place and check the item before agreeing to
+                the points exchange.
               </p>
             </div>
           )}

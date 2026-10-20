@@ -210,14 +210,11 @@ export default function Scan({ onScanComplete, userId }) {
 
   // ── Render ───────────────────────────────────────────────
 
-  const tabClass = (tab) =>
-    `flex-1 py-3 px-4 rounded-lg font-medium transition ${
-      activeTab === tab ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700'
-    }`;
+  const tabClass = (tab) => `scan-tab flex-1 py-3 px-4 rounded-lg font-semibold transition ${activeTab === tab ? 'is-active' : ''}`;
 
   // Tab bar is always visible
   const tabBar = (
-    <div className="flex gap-2 mb-6">
+    <div className="scan-tab-bar flex gap-2 mb-6 rounded-xl p-2 shadow-lg">
       <button onClick={() => goToTab('scan')} className={tabClass('scan')}>
         Scan Items
       </button>

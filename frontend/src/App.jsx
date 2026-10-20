@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   BrowserRouter as Router,
   Routes,
@@ -11,7 +11,6 @@ import {
   Home as HomeIcon,
   Users,
   User,
-  MapPin,
   Sun,
   Moon,
   ShoppingBag,
@@ -29,6 +28,9 @@ import RecycleHistory from './components/RecycleHistory';
 import Home from './components/Home';
 import Marketplace from './components/Marketplace';
 import SavedIdeas from './components/SavedIdeas';
+import ReuseHistory from './components/ReuseHistory';
+import { authApi, tokenStore } from './api/api';
+
 
 function Navigation() {
   const location = useLocation();
@@ -38,7 +40,6 @@ function Navigation() {
   const navItems = [
     { path: '/', label: 'Home', Icon: HomeIcon },
     { path: '/scan', label: 'Scan', Icon: Scan },
-    { path: '/map', label: 'Map', Icon: MapPin },
     { path: '/community', label: 'Community', Icon: Users },
     { path: '/market', label: 'Market', Icon: ShoppingBag },
     { path: '/profile', label: 'Profile', Icon: User },
@@ -67,23 +68,63 @@ function Navigation() {
 }
 
 function App() {
-  const [user, setUser] = useState(null);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('34district-theme') === 'dark');
+  const [user, setUser] = useState(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+
+useEffect(() => {
+  let cancelled = false;
+
+  (async () => {
+    try {
+      if (!tokenStore.get()) return;
+      const res = await authApi.me();
+      if (!cancelled) setUser(res.data);
+    } catch (err) {
+      tokenStore.clear();
+      localStorage.removeItem('34district_user');
+    } finally {
+      if (!cancelled) setCheckingSession(false);
+    }
+  })();
+
+  return () => { cancelled = true; };
+}, []);
 
   const userId = user?.id ?? user?._id ?? user?.userId ?? user?.username ?? user?.email ?? 'demo-user';
 
-  const handleLogin = (userData) => {
-    setUser(userData);
-  };
+  const handleLogin = (data) => {
+  const loggedInUser = data?.user;
+  const token = data?.token;
 
-  const handleLogout = () => {
-    setUser(null);
-  };
+  if (!token || !loggedInUser) {
+    console.warn('Unexpected login response', data);
+    return;
+  }
+
+  tokenStore.set(token);
+  localStorage.setItem('34district_user', JSON.stringify(loggedInUser));
+  setUser(loggedInUser);
+};
+
+const handleLogout = async () => {
+  try {
+    await authApi.logout();
+  } catch (err) {
+    console.warn('Logout request failed', err);
+  }
+  tokenStore.clear();
+  localStorage.removeItem('34district_user');
+  setUser(null);
+};
 
   const handleEditProfile = (updatedUser) => {
     setUser(updatedUser);
   };
-
+  
+  if (checkingSession) {
+  return <p className="p-6 text-center text-gray-600">Loading...</p>;
+   }
   if (!user) {
     return <Login onLogin={handleLogin} />;
   }
@@ -145,6 +186,8 @@ function App() {
               path="/recycle-history"
               element={<RecycleHistory userId={userId} />}
             />
+
+            <Route path="/reuse-history" element={<ReuseHistory userId={userId} />} />
 
             <Route
               path="/profile"

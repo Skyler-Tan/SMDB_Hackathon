@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "capacitor-secure-storage-plugin": "^0.13.0"
+  }
+}

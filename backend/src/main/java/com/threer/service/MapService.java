@@ -26,10 +26,9 @@ public class MapService {
 
     /**
      * Search radius in metres.
-     * 10 km is a good default — recycling centres can be sparse
-     * in suburban / semi-urban areas of Malaysia.
+     * 25 km is a good default — recycling centres can be sparse.
      */
-    private static final int RADIUS_METRES = 10000;
+    private static final int RADIUS_METRES = 25000;
 
     /** Maximum results returned to the frontend. */
     private static final int MAX_RESULTS = 50;

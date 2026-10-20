@@ -1,5 +1,4 @@
-
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Recycle,
@@ -13,10 +12,16 @@ import {
   Leaf,
   Scale,
   ArrowLeft,
+  BarChart3,
+  X,
 } from 'lucide-react';
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || '/api';
+
+// How many weeks the chart shows at most, and at least.
+const MAX_WEEKS = 12;
+const MIN_WEEKS = 4;
 
 const formatDate = (value) => {
   if (!value) return 'Date unavailable';
@@ -56,12 +61,40 @@ const formatBin = (bin) => {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 };
 
+// ---- Week helpers (weeks run Monday to Sunday, in the user's local time) ----
+
+const getWeekStart = (value) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const daysSinceMonday = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - daysSinceMonday);
+  return start;
+};
+
+const addDays = (date, days) =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+
+const toWeekKey = (date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(
+    date.getDate()
+  ).padStart(2, '0')}`;
+
+const shortDate = (date) =>
+  date.toLocaleDateString('en-MY', { day: 'numeric', month: 'short' });
+
+const weekRangeLabel = (week) =>
+  `${shortDate(week.start)} – ${shortDate(week.end)}`;
+
 export default function RecycleHistory({ userId }) {
   const navigate = useNavigate();
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [selectedWeek, setSelectedWeek] = useState(null); // week key or null
+  const chartRef = useRef(null);
 
   const loadHistory = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -122,8 +155,75 @@ export default function RecycleHistory({ userId }) {
     loadHistory();
   }, [loadHistory]);
 
+  // Group the history into weeks for the bar chart.
+  const weeks = useMemo(() => {
+    const currentWeek = getWeekStart(new Date());
+
+    const recordWeekStarts = history
+      .map((record) => getWeekStart(record.createdAt))
+      .filter(Boolean);
+
+    const earliest = recordWeekStarts.length
+      ? new Date(Math.min(...recordWeekStarts.map((d) => d.getTime())))
+      : currentWeek;
+
+    // Show from the first week with data, capped to the most recent MAX_WEEKS,
+    // and padded so the chart never looks too sparse.
+    const maxStart = addDays(currentWeek, -(MAX_WEEKS - 1) * 7);
+    const minStart = addDays(currentWeek, -(MIN_WEEKS - 1) * 7);
+
+    let first = earliest < maxStart ? maxStart : earliest;
+    if (first > minStart) first = minStart;
+
+    const result = [];
+    for (
+      let start = first;
+      start <= currentWeek;
+      start = addDays(start, 7)
+    ) {
+      result.push({
+        key: toWeekKey(start),
+        start,
+        end: addDays(start, 6),
+        items: 0,
+        events: 0,
+      });
+    }
+
+    const byKey = new Map(result.map((week) => [week.key, week]));
+
+    history.forEach((record) => {
+      const start = getWeekStart(record.createdAt);
+      const week = start ? byKey.get(toWeekKey(start)) : null;
+
+      if (week) {
+        week.items += Math.max(0, Number(record.quantity) || 0);
+        week.events += 1;
+      }
+    });
+
+    return result;
+  }, [history]);
+
+  const maxItems = useMemo(
+    () => Math.max(1, ...weeks.map((week) => week.items)),
+    [weeks]
+  );
+
+  const selected = weeks.find((week) => week.key === selectedWeek) || null;
+
+  // Everything when no week is selected; otherwise only that week's records.
+  const visibleHistory = useMemo(() => {
+    if (!selected) return history;
+
+    return history.filter((record) => {
+      const start = getWeekStart(record.createdAt);
+      return start && toWeekKey(start) === selected.key;
+    });
+  }, [history, selected]);
+
   const totals = useMemo(() => {
-    return history.reduce(
+    return visibleHistory.reduce(
       (result, record) => {
         result.events += 1;
         result.quantity += Math.max(
@@ -146,7 +246,17 @@ export default function RecycleHistory({ userId }) {
         material: 0,
       }
     );
-  }, [history]);
+  }, [visibleHistory]);
+
+  // Keep the most recent weeks in view when the chart is wider than the screen.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (chart) chart.scrollLeft = chart.scrollWidth;
+  }, [loading, weeks.length]);
+
+  const toggleWeek = (week) => {
+    setSelectedWeek((current) => (current === week.key ? null : week.key));
+  };
 
   if (loading) {
     return (
@@ -224,6 +334,105 @@ export default function RecycleHistory({ userId }) {
         </div>
       )}
 
+      {/* WEEKLY BAR CHART */}
+      {history.length > 0 && (
+        <section
+          aria-label="Items recycled per week"
+          className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5"
+        >
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <BarChart3 size={20} className="text-green-600" />
+              <h3 className="font-semibold text-gray-900">
+                Items recycled per week
+              </h3>
+            </div>
+
+            {selected ? (
+              <button
+                type="button"
+                onClick={() => setSelectedWeek(null)}
+                className="inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-800 transition hover:bg-green-200"
+              >
+                {weekRangeLabel(selected)}
+                <X size={13} />
+              </button>
+            ) : (
+              <p className="text-xs text-gray-500">
+                Tap a bar to see that week
+              </p>
+            )}
+          </div>
+
+          <div
+            ref={chartRef}
+            className="flex items-end gap-1.5 overflow-x-auto pb-1 sm:gap-2"
+            role="group"
+            aria-label="Weekly recycling bars"
+          >
+            {weeks.map((week) => {
+              const isSelected = selected?.key === week.key;
+              const hasData = week.events > 0;
+              const heightPercent = hasData
+                ? Math.max(8, (week.items / maxItems) * 100)
+                : 0;
+
+              return (
+                <button
+                  key={week.key}
+                  type="button"
+                  onClick={() => toggleWeek(week)}
+                  disabled={!hasData}
+                  aria-pressed={isSelected}
+                  aria-label={`Week of ${weekRangeLabel(week)}: ${week.items} item(s) recycled`}
+                  className={`group flex min-w-[3.5rem] flex-1 flex-col items-center gap-1 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 ${
+                    hasData ? 'cursor-pointer' : 'cursor-default'
+                  }`}
+                >
+                  <span
+                    className={`text-xs font-semibold ${
+                      isSelected ? 'text-green-700' : 'text-gray-500'
+                    }`}
+                  >
+                    {hasData ? week.items : ''}
+                  </span>
+
+                  <div className="flex h-40 w-full items-end">
+                    <div
+                      className={`w-full rounded-t-md transition-all ${
+                        !hasData
+                          ? 'h-0.5 bg-gray-200'
+                          : isSelected
+                            ? 'bg-green-600'
+                            : selected
+                              ? 'bg-green-200 group-hover:bg-green-400'
+                              : 'bg-green-400 group-hover:bg-green-500'
+                      }`}
+                      style={hasData ? { height: `${heightPercent}%` } : undefined}
+                    />
+                  </div>
+
+                  <span
+                    className={`w-full text-center text-[10px] leading-tight sm:text-xs ${
+                      isSelected
+                        ? 'font-bold text-green-700'
+                        : 'text-gray-500'
+                    }`}
+                  >
+                    {shortDate(week.start)}
+                    <br />– {shortDate(week.end)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <p className="mt-3 text-center text-xs text-gray-400">
+            Each bar covers one week, Monday to Sunday.
+          </p>
+        </section>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-2xl border border-green-200 bg-green-50 p-4 sm:p-5">
           <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-green-100">
@@ -274,9 +483,23 @@ export default function RecycleHistory({ userId }) {
       </div>
 
       <section>
-        <h3 className="mb-4 font-semibold text-gray-900">
-          Recent recycling activity
-        </h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-semibold text-gray-900">
+            {selected
+              ? `Recycled ${weekRangeLabel(selected)}`
+              : 'All recycling activity'}
+          </h3>
+
+          {selected && (
+            <button
+              type="button"
+              onClick={() => setSelectedWeek(null)}
+              className="text-sm font-medium text-green-700 underline"
+            >
+              Show all
+            </button>
+          )}
+        </div>
 
         {!error && history.length === 0 && (
           <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-12 text-center">
@@ -294,7 +517,7 @@ export default function RecycleHistory({ userId }) {
         )}
 
         <div className="space-y-4">
-          {history.map((record, index) => (
+          {visibleHistory.map((record, index) => (
             <article
               key={record.id || `${record.createdAt}-${index}`}
               className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5"
