@@ -17,7 +17,11 @@ import {
   timeAgo,
   STATUS,
   REPORT_REASONS,
+<<<<<<< HEAD
 } from './marketConstants';
+=======
+} from './Marketconstants';
+>>>>>>> 108441e8e7b5f5940425f1ca3557d4300791be7d
 
 export default function ListingDetail({
   listing,

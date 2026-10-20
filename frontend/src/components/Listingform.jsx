@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ArrowLeft, ImagePlus, X, Loader2, AlertCircle } from 'lucide-react';
 import { marketApi } from '../api/api';
-import { CATEGORIES, CONDITIONS } from './marketConstants';
+import { CATEGORIES, CONDITIONS } from './Marketconstants';
 
 const MAX_PHOTOS = 4;
 
