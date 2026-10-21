@@ -2,7 +2,10 @@ import axios from 'axios';
 import { Capacitor } from '@capacitor/core';
 import { SecureStoragePlugin } from 'capacitor-secure-storage-plugin';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  'https://sampies.onrender.com/api';
+
 let memoryToken = null;
 const isNative = Capacitor.isNativePlatform();
 
@@ -124,7 +127,16 @@ export const tokenStore = {
   clear: () => localStorage.removeItem('34district_token'),
 };
 
-const client = axios.create({ baseURL: import.meta.env.VITE_API_URL });
+const AUTH_API_BASE_URL =
+  import.meta.env.VITE_API_URL ||
+  'https://sampies.onrender.com';
+
+const client = axios.create({
+  baseURL: AUTH_API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
 
 client.interceptors.request.use((config) => {
   const token = tokenStore.get();
