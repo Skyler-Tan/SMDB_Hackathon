@@ -1,12 +1,5 @@
 import { useState } from 'react';
-import {
-  ArrowLeft,
-  ImagePlus,
-  X,
-  Loader2,
-  AlertCircle,
-  MapPin,
-} from 'lucide-react';
+import { ArrowLeft, ImagePlus, X, Loader2, AlertCircle } from 'lucide-react';
 import { marketApi } from '../api/api';
 import { CATEGORIES, CONDITIONS } from './Marketconstants';
 
@@ -35,30 +28,6 @@ const resizeImage = (file, max = 1024) =>
     reader.readAsDataURL(file);
   });
 
-// Turns coordinates into a neighbourhood-level place name (not an exact
-// address) using OpenStreetMap's free Nominatim service.
-const reverseGeocode = async (latitude, longitude) => {
-  const url =
-    'https://nominatim.openstreetmap.org/reverse' +
-    `?format=jsonv2&zoom=14&lat=${latitude}&lon=${longitude}`;
-
-  const response = await fetch(url, {
-    headers: { Accept: 'application/json' },
-  });
-  if (!response.ok) throw new Error('Reverse geocoding failed');
-
-  const data = await response.json();
-  const a = data.address || {};
-
-  const parts = [
-    a.suburb || a.neighbourhood || a.village,
-    a.city || a.town || a.municipality || a.county,
-    a.state,
-  ].filter(Boolean);
-
-  return [...new Set(parts)].join(', ');
-};
-
 const inputClass =
   'w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-gray-900 outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100 disabled:opacity-60';
 
@@ -82,11 +51,8 @@ export default function ListingForm({
     initial?.condition ?? CONDITIONS[1]
   );
   const [isFree, setIsFree] = useState(Boolean(initial?.isFree));
-  // The listing's price is expressed in eco points.
   const [price, setPrice] = useState(
-    initial && !initial.isFree
-      ? String(initial.points ?? initial.price ?? '')
-      : ''
+    initial && !initial.isFree ? String(initial.price ?? '') : ''
   );
   const [location, setLocation] = useState(initial?.location ?? '');
   const [contact, setContact] = useState(initial?.contact ?? '');
@@ -94,7 +60,6 @@ export default function ListingForm({
 
   const [busy, setBusy] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
-  const [locating, setLocating] = useState(false);
   const [error, setError] = useState('');
 
   const handlePhotos = async (event) => {
@@ -126,46 +91,6 @@ export default function ListingForm({
   const removePhoto = (index) =>
     setPhotos((prev) => prev.filter((_, i) => i !== index));
 
-  // Fill the pickup location from the device's current position.
-  const useCurrentLocation = () => {
-    if (!('geolocation' in navigator)) {
-      setError('Your browser does not support location detection.');
-      return;
-    }
-
-    setLocating(true);
-    setError('');
-
-    navigator.geolocation.getCurrentPosition(
-      async ({ coords }) => {
-        const { latitude, longitude } = coords;
-        const coordinateText = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-
-        try {
-          const place = await reverseGeocode(latitude, longitude);
-          setLocation(place || coordinateText);
-        } catch (err) {
-          console.error('Reverse geocoding failed:', err);
-          // Still useful: fall back to raw coordinates.
-          setLocation(coordinateText);
-        } finally {
-          setLocating(false);
-        }
-      },
-      (err) => {
-        console.error('Geolocation failed:', err);
-        const messages = {
-          1: 'Location permission was denied. Allow it in your browser settings, or type the location yourself.',
-          2: 'Could not determine your location. Please type it instead.',
-          3: 'Finding your location took too long. Please try again.',
-        };
-        setError(messages[err.code] || 'Could not get your location.');
-        setLocating(false);
-      },
-      { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
-    );
-  };
-
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
@@ -173,16 +98,21 @@ export default function ListingForm({
     if (!title.trim()) return setError('Please enter a title.');
     if (!isFree) {
       const value = Number(price);
-      if (!price || !Number.isInteger(value) || value <= 0) {
-        return setError(
-          'Enter a whole number of points above 0, or tick "Give away for free".'
-        );
+      if (!price || Number.isNaN(value) || value <= 0) {
+        return setError('Enter a price above 0, or tick "Give away for free".');
       }
     }
     if (!location.trim()) return setError('Please enter a pickup location.');
     if (!contact.trim()) {
       return setError('Please add a phone number or other way to contact you.');
     }
+    
+    const sellerName =
+      user?.name ||
+     user?.username ||
+     user?.email?.split('@')[0] ||
+      userId ||
+     'demo-user';
 
     const payload = {
       title: title.trim(),
@@ -190,7 +120,7 @@ export default function ListingForm({
       category,
       condition,
       isFree,
-      price: isFree ? 0 : Number(price), // value is in eco points
+      price: isFree ? 0 : Number(price),
       location: location.trim(),
       contact: contact.trim(),
       photos,
@@ -228,7 +158,7 @@ export default function ListingForm({
           <ArrowLeft size={20} />
         </button>
         <h2 className="text-xl font-bold text-gray-900">
-          {isEdit ? 'Edit listing' : 'Trade or give away an item'}
+          {isEdit ? 'Edit listing' : 'Sell or give away an item'}
         </h2>
       </div>
 
@@ -333,26 +263,19 @@ export default function ListingForm({
 
       <div>
         <label className="mb-1 block text-sm font-medium text-gray-700">
-          Points required
+          Price (RM)
         </label>
-        <div className="relative">
-          <input
-            type="number"
-            inputMode="numeric"
-            min="1"
-            step="1"
-            value={isFree ? '' : price}
-            onChange={(e) => setPrice(e.target.value)}
-            placeholder={isFree ? 'Free' : 'e.g. 50'}
-            disabled={busy || isFree}
-            className={`${inputClass} pr-12`}
-          />
-          {!isFree && (
-            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-gray-400">
-              pts
-            </span>
-          )}
-        </div>
+        <input
+          type="number"
+          inputMode="decimal"
+          min="0"
+          step="0.01"
+          value={isFree ? '' : price}
+          onChange={(e) => setPrice(e.target.value)}
+          placeholder={isFree ? 'Free' : '0.00'}
+          disabled={busy || isFree}
+          className={inputClass}
+        />
         <label className="mt-2 flex items-center gap-2 text-sm text-gray-700">
           <input
             type="checkbox"
@@ -374,31 +297,16 @@ export default function ListingForm({
           onChange={(e) => setDescription(e.target.value)}
           rows={4}
           maxLength={1000}
-          placeholder="Size, age, any defects, why you're giving it away..."
+          placeholder="Size, age, any defects, why you're selling..."
           disabled={busy}
           className={inputClass}
         />
       </div>
 
       <div>
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <label className="block text-sm font-medium text-gray-700">
-            Pickup location
-          </label>
-          <button
-            type="button"
-            onClick={useCurrentLocation}
-            disabled={busy || locating}
-            className="inline-flex items-center gap-1 rounded-full border border-green-600 bg-white px-3 py-1 text-xs font-semibold text-green-700 transition hover:bg-green-50 disabled:opacity-60"
-          >
-            {locating ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <MapPin size={14} />
-            )}
-            {locating ? 'Locating...' : 'Use my current location'}
-          </button>
-        </div>
+        <label className="mb-1 block text-sm font-medium text-gray-700">
+          Pickup location
+        </label>
         <input
           type="text"
           value={location}
@@ -407,10 +315,6 @@ export default function ListingForm({
           disabled={busy}
           className={inputClass}
         />
-        <p className="mt-1 text-xs text-gray-500">
-          Only your area is filled in, not your exact address. You can edit it
-          before posting.
-        </p>
       </div>
 
       <div>
@@ -431,10 +335,7 @@ export default function ListingForm({
       </div>
 
       {error && (
-        <div
-          role="alert"
-          className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-        >
+        <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
           <p>{error}</p>
         </div>
