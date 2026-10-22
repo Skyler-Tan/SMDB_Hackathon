@@ -28,7 +28,7 @@ export const REPORT_REASONS = [
 export const formatPrice = (listing) => {
   if (!listing) return '';
   if (listing.isFree || Number(listing.price) === 0) return 'Free';
-  return `RM ${Number(listing.price || 0).toFixed(2)}`;
+  return `${Number(listing.price || 0)} EcoPoints`;
 };
 
 export const timeAgo = (iso) => {
