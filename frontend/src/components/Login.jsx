@@ -182,11 +182,9 @@ export default function Login({ onLogin }) {
 
     try {
       const response = await SocialLogin.login({
-        provider: 'google',
-        options: {
-          scopes: ['email', 'profile'],
-        },
-      });
+  provider: 'google',
+  options: {},
+});
 
       const credential = response.result?.idToken;
 
