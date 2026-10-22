@@ -17,7 +17,11 @@ public class User {
     @Indexed(unique = true)
     private String email;
 
-    // Optional for Google accounts.
+    // Phone numbers must be unique, but Google accounts can have no phone.
+    @Indexed(
+        unique = true,
+        partialFilter = "{ 'phone': { '$type': 'string' } }"
+    )
     private String phone;
 
     private String passwordHash;
