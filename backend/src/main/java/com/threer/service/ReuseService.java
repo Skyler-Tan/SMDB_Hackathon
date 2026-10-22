@@ -2,8 +2,10 @@ package com.threer.service;
 
 import com.threer.dto.ReuseRequest;
 import com.threer.dto.ReuseResponse;
+import com.threer.model.CatalogItem;
 import com.threer.model.SavedIdea;
 import com.threer.model.ScannedItem;
+import com.threer.repository.CatalogItemRepository;
 import com.threer.repository.SavedIdeaRepository;
 import com.threer.repository.ScannedItemRepository;
 import org.springframework.http.HttpStatus;
@@ -23,52 +25,153 @@ import java.util.Set;
 public class ReuseService {
 
     private static final int IDEAS_PER_LEVEL = 3;
-
-    // Titles with at least this word overlap count as the same idea.
     private static final double TITLE_SIMILARITY = 0.7;
 
     private final TavilySearchService tavilySearchService;
     private final ScannedItemRepository scannedItemRepository;
     private final SavedIdeaRepository savedIdeaRepository;
+    private final CatalogItemRepository catalogItemRepository;
 
     public ReuseService(
             TavilySearchService tavilySearchService,
             ScannedItemRepository scannedItemRepository,
-            SavedIdeaRepository savedIdeaRepository) {
+            SavedIdeaRepository savedIdeaRepository,
+            CatalogItemRepository catalogItemRepository) {
+
         this.tavilySearchService = tavilySearchService;
         this.scannedItemRepository = scannedItemRepository;
         this.savedIdeaRepository = savedIdeaRepository;
+        this.catalogItemRepository = catalogItemRepository;
     }
 
     public ReuseResponse generateIdeas(ReuseRequest request) {
 
-        if (request == null
-                || request.getItemId() == null
-                || request.getItemId().isBlank()) {
+        if (request == null) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "A scanned item ID is required. Please scan and confirm an item first."
+                    "Item details are required."
             );
         }
 
-        ScannedItem item = scannedItemRepository
-                .findById(request.getItemId().trim())
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND,
-                        "Scanned item not found. Please scan the item again."
+        String itemId = request.getItemId() == null
+                ? ""
+                : request.getItemId().trim();
+
+        ScannedItem item = null;
+
+        // First, try to find an existing scanned item.
+        if (!itemId.isBlank()) {
+            item = scannedItemRepository.findById(itemId)
+                    .orElse(null);
+        }
+
+        if (item != null) {
+
+            // Image-scanned items must still be confirmed.
+            if (!item.isIdentificationConfirmed()) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Please confirm the item's identification before generating reuse ideas."
+                );
+            }
+
+        } else {
+
+            // A manually selected catalog item does not need a scan.
+            CatalogItem catalogItem = null;
+
+            if (!itemId.isBlank()) {
+                catalogItem = catalogItemRepository
+                        .findById(itemId)
+                        .orElse(null);
+            }
+
+            // Support frontend requests that send item details
+            // without a database ID.
+            String requestedName = clean(request.getName());
+
+            if (catalogItem == null && requestedName != null) {
+                catalogItem = catalogItemRepository.findAll()
+                        .stream()
+                        .filter(candidate ->
+                                candidate.getName() != null
+                                        && candidate.getName()
+                                        .equalsIgnoreCase(requestedName))
+                        .findFirst()
+                        .orElse(null);
+            }
+
+            if (catalogItem != null) {
+
+                // Build an in-memory item for the existing Tavily logic.
+                // Do not save it as a scanned item.
+                item = new ScannedItem();
+
+                item.setName(firstNonBlank(
+                        catalogItem.getName(),
+                        request.getName(),
+                        "Unknown item"
                 ));
 
-        if (!item.isIdentificationConfirmed()) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "Please confirm the item's identification before generating reuse ideas."
-            );
+                item.setMaterial(firstNonBlank(
+                        catalogItem.getMaterial(),
+                        request.getMaterial(),
+                        "unknown"
+                ));
+
+                item.setBin(firstNonBlank(
+                        catalogItem.getBin(),
+                        "unknown"
+                ));
+
+                item.setDescription(firstNonBlank(
+                        catalogItem.getNotes(),
+                        ""
+                ));
+
+                item.setBrand(firstNonBlank(
+                        request.getBrand(),
+                        ""
+                ));
+
+                item.setSize(firstNonBlank(
+                        request.getSize(),
+                        ""
+                ));
+
+                item.setContainer(firstNonBlank(
+                        request.getContainer(),
+                        ""
+                ));
+
+            } else if (requestedName != null) {
+
+                // Fallback for a manual-entry request that supplies
+                // complete item details but no matching catalog record.
+                item = new ScannedItem();
+
+                item.setName(requestedName);
+                item.setBrand(firstNonBlank(request.getBrand(), ""));
+                item.setSize(firstNonBlank(request.getSize(), ""));
+                item.setContainer(firstNonBlank(
+                        request.getContainer(), ""));
+                item.setMaterial(firstNonBlank(
+                        request.getMaterial(), "unknown"));
+                item.setBin("unknown");
+                item.setDescription("");
+                
+            } else {
+                throw new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Item not found. Please select an item from Key in Details or provide its name."
+                );
+            }
         }
 
         if (item.getName() == null || item.getName().isBlank()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "The confirmed item has no name."
+                    "The selected item has no name."
             );
         }
 
@@ -77,38 +180,36 @@ public class ReuseService {
                 ? "demo-user"
                 : request.getUserId().trim();
 
-        // Load what this user has already saved.
         Set<String> savedUrls = new HashSet<>();
         List<String> savedTitles = new ArrayList<>();
 
-        for (SavedIdea saved
-                : savedIdeaRepository.findByUserIdOrderByCreatedAtDesc(userId)) {
+        for (SavedIdea saved :
+                savedIdeaRepository.findByUserIdOrderByCreatedAtDesc(userId)) {
 
             String url = normalizeUrl(saved.getSourceUrl());
+
             if (!url.isEmpty()) {
                 savedUrls.add(url);
             }
 
             String title = normalizeTitle(saved.getTitle());
+
             if (!title.isEmpty()) {
                 savedTitles.add(title);
             }
         }
 
-        // URLs already used in this response, so one article
-        // never appears under two difficulty levels.
         Set<String> usedUrls = new HashSet<>();
+        List<ReuseResponse.DiyIdea> ideas = new ArrayList<>();
 
         System.out.println("========== TAVILY REUSE ==========");
         System.out.println("Item: " + item.getName());
         System.out.println("Material: " + safe(item.getMaterial()));
         System.out.println("User: " + userId);
-        System.out.println("Saved ideas to avoid: " + savedUrls.size());
         System.out.println("Searching all difficulties.");
 
-        List<ReuseResponse.DiyIdea> ideas = new ArrayList<>();
-
         for (String difficulty : List.of("Easy", "Medium", "Hard")) {
+
             System.out.println("Searching difficulty: " + difficulty);
 
             List<TavilySearchService.SearchResult> projects =
@@ -122,19 +223,18 @@ public class ReuseService {
                     savedUrls, savedTitles, usedUrls
             );
 
-            // Some results were skipped. Look for different ideas.
             if (added < IDEAS_PER_LEVEL) {
+
                 System.out.println(
-                        difficulty + ": only " + added
-                                + " new ideas. Searching for alternatives."
+                        difficulty + ": searching for alternative ideas."
                 );
 
                 List<TavilySearchService.SearchResult> alternatives =
                         findAlternativeProjects(item, difficulty);
 
                 added = addIdeas(
-                        ideas, alternatives, videos, item, difficulty, added,
-                        savedUrls, savedTitles, usedUrls
+                        ideas, alternatives, videos, item, difficulty,
+                        added, savedUrls, savedTitles, usedUrls
                 );
             }
 
@@ -149,14 +249,13 @@ public class ReuseService {
         if (ideas.isEmpty()) {
             throw new ResponseStatusException(
                     HttpStatus.SERVICE_UNAVAILABLE,
-                    "No new reuse projects were found. You may have saved the best ones already. Please try again later."
+                    "No new reuse projects were found. Please try again later."
             );
         }
 
         return new ReuseResponse("All", ideas);
     }
 
-    // Adds new ideas until the level has enough. Returns the new total.
     private int addIdeas(
             List<ReuseResponse.DiyIdea> ideas,
             List<TavilySearchService.SearchResult> projects,
@@ -171,6 +270,7 @@ public class ReuseService {
         int added = alreadyAdded;
 
         for (TavilySearchService.SearchResult project : projects) {
+
             if (added >= IDEAS_PER_LEVEL) {
                 break;
             }
@@ -188,14 +288,10 @@ public class ReuseService {
             }
 
             if (overlapsSaved(project, savedUrls, savedTitles)) {
-                System.out.println(
-                        "Skipping idea already saved: " + project.title()
-                );
                 continue;
             }
 
             String videoUrl = findMatchingVideoUrl(videos, project);
-
             List<String> steps = extractSteps(project.content());
 
             ideas.add(new ReuseResponse.DiyIdea(
@@ -206,7 +302,9 @@ public class ReuseService {
                     buildMaterials(item),
                     List.of(),
                     steps,
-                    videoUrl == null ? null : "YouTube video tutorial",
+                    videoUrl == null
+                            ? null
+                            : "YouTube video tutorial",
                     videoUrl,
                     project.title().trim(),
                     project.url().trim()
@@ -219,7 +317,6 @@ public class ReuseService {
         return added;
     }
 
-    // True when a result matches something the user already saved.
     private boolean overlapsSaved(
             TavilySearchService.SearchResult project,
             Set<String> savedUrls,
@@ -244,8 +341,8 @@ public class ReuseService {
         return false;
     }
 
-    // Host + path, ignoring www, query string, fragment and trailing slash.
     private String normalizeUrl(String url) {
+
         if (url == null || url.isBlank()) {
             return "";
         }
@@ -271,13 +368,14 @@ public class ReuseService {
             }
 
             return host + path.toLowerCase(Locale.ROOT);
+
         } catch (IllegalArgumentException e) {
             return url.trim().toLowerCase(Locale.ROOT);
         }
     }
 
-    // Lowercase, drop a trailing "| Site name", strip punctuation.
     private String normalizeTitle(String title) {
+
         if (title == null || title.isBlank()) {
             return "";
         }
@@ -295,6 +393,7 @@ public class ReuseService {
     }
 
     private boolean similar(String a, String b) {
+
         if (a.equals(b)) {
             return true;
         }
@@ -312,10 +411,12 @@ public class ReuseService {
         Set<String> all = new HashSet<>(wordsA);
         all.addAll(wordsB);
 
-        return (double) common.size() / all.size() >= TITLE_SIMILARITY;
+        return (double) common.size() / all.size()
+                >= TITLE_SIMILARITY;
     }
 
     private Set<String> words(String text) {
+
         Set<String> result = new HashSet<>();
 
         for (String word : text.split("\\s+")) {
@@ -335,8 +436,8 @@ public class ReuseService {
         String material = safe(item.getMaterial());
 
         List<String> queries = List.of(
-                name + " DIY upcycling reuse project " + difficulty
-                        + " step by step",
+                name + " DIY upcycling reuse project "
+                        + difficulty + " step by step",
                 "creative ways to reuse " + name + " "
                         + difficulty + " DIY instructions",
                 name + " " + material
@@ -346,7 +447,6 @@ public class ReuseService {
         return collectRelevantProjects(item, queries);
     }
 
-    // Different wording, used when saved ideas were skipped.
     private List<TavilySearchService.SearchResult> findAlternativeProjects(
             ScannedItem item,
             String difficulty) {
@@ -357,8 +457,8 @@ public class ReuseService {
                 "repurpose old " + name + " new use "
                         + difficulty + " project",
                 name + " upcycle ideas for home " + difficulty,
-                "how to turn a " + name + " into something useful "
-                        + difficulty + " DIY",
+                "how to turn a " + name
+                        + " into something useful " + difficulty + " DIY",
                 name + " reuse craft ideas tutorial"
         );
 
@@ -376,10 +476,13 @@ public class ReuseService {
             searchAndCollect(query, unique);
         }
 
-        List<TavilySearchService.SearchResult> relevant = new ArrayList<>();
+        List<TavilySearchService.SearchResult> relevant =
+                new ArrayList<>();
 
         for (TavilySearchService.SearchResult result : unique.values()) {
-            if (!isYoutubeUrl(result.url()) && isRelevant(result, item)) {
+
+            if (!isYoutubeUrl(result.url())
+                    && isRelevant(result, item)) {
                 relevant.add(result);
             }
         }
@@ -394,8 +497,8 @@ public class ReuseService {
         String name = safe(item.getName());
 
         List<String> queries = List.of(
-                "site:youtube.com/watch DIY upcycle " + name
-                        + " " + difficulty + " tutorial",
+                "site:youtube.com/watch DIY upcycle "
+                        + name + " " + difficulty + " tutorial",
                 "site:youtu.be " + name
                         + " reuse DIY " + difficulty + " tutorial"
         );
@@ -407,9 +510,11 @@ public class ReuseService {
             searchAndCollect(query, unique);
         }
 
-        List<TavilySearchService.SearchResult> videos = new ArrayList<>();
+        List<TavilySearchService.SearchResult> videos =
+                new ArrayList<>();
 
         for (TavilySearchService.SearchResult result : unique.values()) {
+
             if (isYoutubeUrl(result.url())) {
                 videos.add(result);
             }
@@ -433,6 +538,7 @@ public class ReuseService {
             }
 
             for (TavilySearchService.SearchResult result : found) {
+
                 if (result == null || result.url() == null
                         || result.url().isBlank()) {
                     continue;
@@ -440,6 +546,7 @@ public class ReuseService {
 
                 results.putIfAbsent(result.url().trim(), result);
             }
+
         } catch (Exception e) {
             System.err.println(
                     "Tavily query failed: " + query
@@ -462,11 +569,10 @@ public class ReuseService {
         String material = safe(item.getMaterial())
                 .toLowerCase(Locale.ROOT);
 
-        // Prefer results mentioning the actual item.
-        String[] itemWords = itemName.split("[^a-z0-9]+");
         int matchedWords = 0;
 
-        for (String word : itemWords) {
+        for (String word : itemName.split("[^a-z0-9]+")) {
+
             if (word.length() >= 3 && text.contains(word)) {
                 matchedWords++;
             }
@@ -476,9 +582,9 @@ public class ReuseService {
             return true;
         }
 
-        // Material alone is a weaker match, so require a DIY/reuse context.
-        boolean materialMatches = !material.equals("unknown")
-                && text.contains(material);
+        boolean materialMatches =
+                !material.equals("unknown")
+                        && text.contains(material);
 
         boolean diyContext = text.contains("reuse")
                 || text.contains("upcycl")
@@ -497,33 +603,34 @@ public class ReuseService {
             return null;
         }
 
-        // Prefer a video whose title shares words with the project title.
         String projectTitle = safe(project.title())
                 .toLowerCase(Locale.ROOT);
 
         for (TavilySearchService.SearchResult video : videos) {
+
             String videoTitle = safe(video.title())
                     .toLowerCase(Locale.ROOT);
 
             for (String word : projectTitle.split("[^a-z0-9]+")) {
-                if (word.length() >= 4 && videoTitle.contains(word)) {
+
+                if (word.length() >= 4
+                        && videoTitle.contains(word)) {
                     return video.url();
                 }
             }
         }
 
-        // The search was specifically for this item and difficulty.
         return videos.get(0).url();
     }
 
     private boolean isYoutubeUrl(String url) {
+
         if (url == null || url.isBlank()) {
             return false;
         }
 
         try {
-            String host = URI.create(url.trim())
-                    .getHost();
+            String host = URI.create(url.trim()).getHost();
 
             if (host == null) {
                 return false;
@@ -535,12 +642,14 @@ public class ReuseService {
                     || host.endsWith(".youtube.com")
                     || host.equals("youtu.be")
                     || host.endsWith(".youtu.be");
+
         } catch (IllegalArgumentException e) {
             return false;
         }
     }
 
     private List<String> extractSteps(String content) {
+
         List<String> steps = new ArrayList<>();
 
         if (content == null || content.isBlank()) {
@@ -550,10 +659,11 @@ public class ReuseService {
         String normalized = content.trim()
                 .replaceAll("\\s+", " ");
 
-        // Keep every usable sentence supplied in the search result.
-        String[] sentences = normalized.split("(?<=[.!?])\\s+");
+        String[] sentences =
+                normalized.split("(?<=[.!?])\\s+");
 
         for (String sentence : sentences) {
+
             String step = sentence.trim();
 
             if (step.length() < 15) {
@@ -570,11 +680,13 @@ public class ReuseService {
     }
 
     private String safeSummary(String content) {
+
         if (content == null || content.isBlank()) {
             return "Open the source link for project information and instructions.";
         }
 
-        String summary = content.trim().replaceAll("\\s+", " ");
+        String summary = content.trim()
+                .replaceAll("\\s+", " ");
 
         if (summary.length() > 300) {
             return summary.substring(0, 297).trim() + "...";
@@ -584,6 +696,7 @@ public class ReuseService {
     }
 
     private List<String> buildMaterials(ScannedItem item) {
+
         List<String> materials = new ArrayList<>();
 
         String name = safe(item.getName());
@@ -591,12 +704,30 @@ public class ReuseService {
 
         materials.add(name);
 
-        if (!material.equals("unknown")
+        if (!material.equalsIgnoreCase("unknown")
                 && !material.equalsIgnoreCase(name)) {
             materials.add(material);
         }
 
         return materials;
+    }
+
+    private String clean(String value) {
+        return value == null || value.isBlank()
+                ? null
+                : value.trim();
+    }
+
+    private String firstNonBlank(String... values) {
+
+        for (String value : values) {
+
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+
+        return "";
     }
 
     private String safe(String value) {
