@@ -1,6 +1,7 @@
-
 import { useState, useEffect, useRef } from 'react';
 import { User, Lock, Mail, Phone, Loader2 } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { SocialLogin } from '@capgo/capacitor-social-login';
 import { authApi } from '../api/api';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -14,10 +15,50 @@ export default function Login({ onLogin }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [busy, setBusy] = useState(false);
+  const [googleNativeReady, setGoogleNativeReady] = useState(false);
 
   const googleButtonRef = useRef(null);
   const googleCallbackRef = useRef(null);
 
+  const isNative = Capacitor.isNativePlatform();
+
+  // Native Google sign-in initialization for Android.
+  useEffect(() => {
+    if (!isNative || !GOOGLE_CLIENT_ID) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const initializeGoogle = async () => {
+      try {
+        await SocialLogin.initialize({
+          google: {
+            webClientId: GOOGLE_CLIENT_ID,
+            mode: 'online',
+          },
+        });
+
+        if (!cancelled) {
+          setGoogleNativeReady(true);
+        }
+      } catch (err) {
+        console.error('Native Google initialization failed:', err);
+
+        if (!cancelled) {
+          setError('Unable to initialize Google sign-in. Please try again.');
+        }
+      }
+    };
+
+    initializeGoogle();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isNative]);
+
+  // Existing Google sign-in callback for the website.
   googleCallbackRef.current = async (response) => {
     if (!response?.credential) {
       setError('Google sign-in failed. Please try again.');
@@ -42,8 +83,15 @@ export default function Login({ onLogin }) {
     }
   };
 
+  // Keep the existing web Google button.
+  // Do not load the web OAuth button inside the native Android app.
   useEffect(() => {
-    if (isRegister || !GOOGLE_CLIENT_ID || !googleButtonRef.current) {
+    if (
+      isNative ||
+      isRegister ||
+      !GOOGLE_CLIENT_ID ||
+      !googleButtonRef.current
+    ) {
       return;
     }
 
@@ -83,6 +131,7 @@ export default function Login({ onLogin }) {
     if (renderGoogleButton()) {
       return () => {
         cancelled = true;
+        window.clearInterval(retryInterval);
       };
     }
 
@@ -119,7 +168,50 @@ export default function Login({ onLogin }) {
         existingScript.removeEventListener('load', renderGoogleButton);
       }
     };
-  }, [isRegister]);
+  }, [isNative, isRegister]);
+
+  // Native Google sign-in for Android.
+  const handleNativeGoogleLogin = async () => {
+    if (busy || !googleNativeReady) {
+      return;
+    }
+
+    setBusy(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const response = await SocialLogin.login({
+        provider: 'google',
+        options: {
+          scopes: ['email', 'profile'],
+        },
+      });
+
+      const credential = response.result?.idToken;
+
+      if (!credential) {
+        console.error('Google sign-in response did not contain an ID token:', response);
+        throw new Error(
+          'Google sign-in did not return an ID token. Please try again.'
+        );
+      }
+
+      // Reuse the existing Spring Boot endpoint.
+      const result = await authApi.googleLogin(credential);
+      onLogin(result.data);
+    } catch (err) {
+      console.error('Native Google login failed:', err);
+
+      setError(
+        err.response?.data?.message ||
+          err.message ||
+          'Google sign-in failed. Please try again.'
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -179,7 +271,9 @@ export default function Login({ onLogin }) {
         setPassword('');
         setEmail('');
         setPhone('');
-        setSuccess('Sign up successful! Please log in with your new account.');
+        setSuccess(
+          'Sign up successful! Please log in with your new account.'
+        );
       } catch (err) {
         console.error('Sign up failed:', err);
         setError(
@@ -229,9 +323,7 @@ export default function Login({ onLogin }) {
           </h1>
 
           <p className="mt-2 text-gray-600">
-            {isRegister
-              ? 'Create your account'
-              : 'Welcome back'}
+            {isRegister ? 'Create your account' : 'Welcome back'}
           </p>
 
           {!isRegister && (
@@ -422,15 +514,28 @@ export default function Login({ onLogin }) {
             </div>
 
             <div className="flex min-h-[40px] justify-center">
-              {GOOGLE_CLIENT_ID ? (
+              {!GOOGLE_CLIENT_ID ? (
+                <p className="text-center text-sm text-gray-500">
+                  Google sign-in is not configured yet.
+                </p>
+              ) : isNative ? (
+                <button
+                  type="button"
+                  onClick={handleNativeGoogleLogin}
+                  disabled={busy || !googleNativeReady}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                >
+                  {busy
+                    ? 'Please wait...'
+                    : googleNativeReady
+                      ? 'Continue with Google'
+                      : 'Loading Google sign-in...'}
+                </button>
+              ) : (
                 <div
                   ref={googleButtonRef}
                   className={busy ? 'pointer-events-none opacity-60' : ''}
                 />
-              ) : (
-                <p className="text-center text-sm text-gray-500">
-                  Google sign-in is not configured yet.
-                </p>
               )}
             </div>
           </div>

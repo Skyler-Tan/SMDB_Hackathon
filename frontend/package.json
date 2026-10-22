@@ -6,6 +6,7 @@
     "@capacitor/android": "^8.5.3",
     "@capacitor/core": "^8.5.3",
     "@capacitor/ios": "^8.5.3",
+    "@capgo/capacitor-social-login": "^8.7.5",
     "axios": "^1.6.2",
     "clsx": "^2.0.0",
     "leaflet": "^1.9.4",
