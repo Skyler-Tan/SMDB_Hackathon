@@ -1,6 +1,9 @@
-import { useState } from 'react';
+
+import { useState, useEffect, useRef } from 'react';
 import { User, Lock, Mail, Phone, Loader2 } from 'lucide-react';
 import { authApi } from '../api/api';
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState('');
@@ -12,8 +15,115 @@ export default function Login({ onLogin }) {
   const [success, setSuccess] = useState('');
   const [busy, setBusy] = useState(false);
 
+  const googleButtonRef = useRef(null);
+  const googleCallbackRef = useRef(null);
+
+  googleCallbackRef.current = async (response) => {
+    if (!response?.credential) {
+      setError('Google sign-in failed. Please try again.');
+      return;
+    }
+
+    setBusy(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const result = await authApi.googleLogin(response.credential);
+      onLogin(result.data);
+    } catch (err) {
+      console.error('Google login failed:', err);
+      setError(
+        err.response?.data?.message ||
+          'Google sign-in failed. Please try again.'
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isRegister || !GOOGLE_CLIENT_ID || !googleButtonRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    let retryInterval;
+
+    const renderGoogleButton = () => {
+      if (
+        cancelled ||
+        !window.google?.accounts?.id ||
+        !googleButtonRef.current
+      ) {
+        return false;
+      }
+
+      window.clearInterval(retryInterval);
+      googleButtonRef.current.innerHTML = '';
+
+      window.google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (response) => googleCallbackRef.current?.(response),
+      });
+
+      window.google.accounts.id.renderButton(googleButtonRef.current, {
+        type: 'standard',
+        theme: 'outline',
+        size: 'large',
+        text: 'continue_with',
+        shape: 'rectangular',
+        logo_alignment: 'left',
+        width: 320,
+      });
+
+      return true;
+    };
+
+    if (renderGoogleButton()) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const existingScript = document.querySelector(
+      'script[src="https://accounts.google.com/gsi/client"]'
+    );
+
+    if (existingScript) {
+      existingScript.addEventListener('load', renderGoogleButton);
+
+      retryInterval = window.setInterval(() => {
+        renderGoogleButton();
+      }, 200);
+    } else {
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = renderGoogleButton;
+      script.onerror = () => {
+        if (!cancelled) {
+          setError('Unable to load Google sign-in. Please try again later.');
+        }
+      };
+
+      document.head.appendChild(script);
+    }
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(retryInterval);
+
+      if (existingScript) {
+        existingScript.removeEventListener('load', renderGoogleButton);
+      }
+    };
+  }, [isRegister]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
     if (busy) return;
 
     setError('');
@@ -21,17 +131,15 @@ export default function Login({ onLogin }) {
 
     const cleanUsername = username.trim();
     const cleanEmail = email.trim().toLowerCase();
-    const cleanPhone = phone.trim();
-    const normalizedPhone = cleanPhone.replace(/[\s()-]/g, '');
+    const normalizedPhone = phone.replace(/[\s()-]/g, '');
 
-    if (!cleanUsername || !password.trim()) {
+    if (!cleanUsername || !password) {
       setError('Please enter your username and password.');
       return;
     }
 
-    // SIGN UP
     if (isRegister) {
-      if (!cleanEmail || !cleanPhone) {
+      if (!cleanEmail || !normalizedPhone) {
         setError('Please enter your email and phone number.');
         return;
       }
@@ -60,7 +168,6 @@ export default function Login({ onLogin }) {
       setBusy(true);
 
       try {
-        // The server checks for duplicate username, email and phone.
         await authApi.register({
           username: cleanUsername,
           email: cleanEmail,
@@ -68,7 +175,6 @@ export default function Login({ onLogin }) {
           password,
         });
 
-        // Return to Login instead of entering the app.
         setIsRegister(false);
         setPassword('');
         setEmail('');
@@ -87,7 +193,6 @@ export default function Login({ onLogin }) {
       return;
     }
 
-    // LOGIN
     setBusy(true);
 
     try {
@@ -96,7 +201,6 @@ export default function Login({ onLogin }) {
         password,
       });
 
-      // Expected response: { token, user }. App.jsx stores the token.
       onLogin(response.data);
     } catch (err) {
       console.error('Login failed:', err);
@@ -120,10 +224,21 @@ export default function Login({ onLogin }) {
     <div className="flex min-h-screen items-center justify-center bg-gray-100 p-6">
       <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl">
         <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-green-600">34district</h1>
+          <h1 className="text-3xl font-bold text-green-600">
+            34district
+          </h1>
+
           <p className="mt-2 text-gray-600">
-            {isRegister ? 'Create your account' : 'Welcome back'}
+            {isRegister
+              ? 'Create your account'
+              : 'Welcome back'}
           </p>
+
+          {!isRegister && (
+            <p className="mt-1 text-sm text-gray-500">
+              Sign in to continue to 34district.
+            </p>
+          )}
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -134,11 +249,13 @@ export default function Login({ onLogin }) {
             >
               Username
             </label>
+
             <div className="relative">
               <User
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
                 size={20}
               />
+
               <input
                 id="username"
                 type="text"
@@ -163,11 +280,13 @@ export default function Login({ onLogin }) {
                 >
                   Email Address
                 </label>
+
                 <div className="relative">
                   <Mail
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
                     size={20}
                   />
+
                   <input
                     id="email"
                     type="email"
@@ -190,11 +309,13 @@ export default function Login({ onLogin }) {
                 >
                   Malaysian Phone Number
                 </label>
+
                 <div className="relative">
                   <Phone
                     className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
                     size={20}
                   />
+
                   <input
                     id="phone"
                     type="tel"
@@ -208,6 +329,7 @@ export default function Login({ onLogin }) {
                     className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
                   />
                 </div>
+
                 <p className="mt-1 text-xs text-gray-500">
                   Example: 0123456789 or +60123456789
                 </p>
@@ -222,11 +344,13 @@ export default function Login({ onLogin }) {
             >
               Password
             </label>
+
             <div className="relative">
               <Lock
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
                 size={20}
               />
+
               <input
                 id="password"
                 type="password"
@@ -240,6 +364,7 @@ export default function Login({ onLogin }) {
                 className="w-full rounded-lg border border-gray-300 py-3 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
               />
             </div>
+
             {isRegister && (
               <p className="mt-1 text-xs text-gray-500">
                 Password must be at least 8 characters.
@@ -271,6 +396,7 @@ export default function Login({ onLogin }) {
             className="flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-6 py-3 font-medium text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busy && <Loader2 size={18} className="animate-spin" />}
+
             {busy
               ? 'Please wait...'
               : isRegister
@@ -284,6 +410,31 @@ export default function Login({ onLogin }) {
             </p>
           )}
         </form>
+
+        {!isRegister && (
+          <div className="mt-6">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="h-px flex-1 bg-gray-200" />
+              <span className="text-xs text-gray-500">
+                OR CONTINUE WITH
+              </span>
+              <div className="h-px flex-1 bg-gray-200" />
+            </div>
+
+            <div className="flex min-h-[40px] justify-center">
+              {GOOGLE_CLIENT_ID ? (
+                <div
+                  ref={googleButtonRef}
+                  className={busy ? 'pointer-events-none opacity-60' : ''}
+                />
+              ) : (
+                <p className="text-center text-sm text-gray-500">
+                  Google sign-in is not configured yet.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="mt-6 text-center">
           <button

@@ -1,3 +1,4 @@
+
 package com.threer.model;
 
 import org.springframework.data.annotation.Id;
@@ -16,10 +17,13 @@ public class User {
     @Indexed(unique = true)
     private String email;
 
-    @Indexed(unique = true)
+    // Optional for Google accounts.
     private String phone;
 
     private String passwordHash;
+
+    // Google's stable account identifier.
+    private String googleId;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -35,4 +39,7 @@ public class User {
 
     public String getPasswordHash() { return passwordHash; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
+
+    public String getGoogleId() { return googleId; }
+    public void setGoogleId(String googleId) { this.googleId = googleId; }
 }

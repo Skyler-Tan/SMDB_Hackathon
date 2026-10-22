@@ -1,3 +1,4 @@
+
 import axios from 'axios';
 import { Capacitor } from '@capacitor/core';
 import { SecureStoragePlugin } from 'capacitor-secure-storage-plugin';
@@ -121,15 +122,20 @@ export const reuseHistoryApi = {
     api.post('/reuse/history', entry),
 };
 
+// Token storage
 export const tokenStore = {
   get: () => localStorage.getItem('34district_token'),
+
   set: (t) => localStorage.setItem('34district_token', t),
+
   clear: () => localStorage.removeItem('34district_token'),
 };
 
+// Authentication API
+// Uses the same base URL as the other API functions.
 const AUTH_API_BASE_URL =
-  import.meta.env.VITE_API_URL ||
-  'https://sampies.onrender.com';
+  import.meta.env.VITE_API_BASE_URL ||
+  'https://sampies.onrender.com/api';
 
 const client = axios.create({
   baseURL: AUTH_API_BASE_URL,
@@ -140,15 +146,29 @@ const client = axios.create({
 
 client.interceptors.request.use((config) => {
   const token = tokenStore.get();
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+
   return config;
 });
 
 export const authApi = {
-  register: (body) => client.post('/api/auth/register', body),
-  login: (body) => client.post('/api/auth/login', body),
-  me: () => client.get('/api/auth/me'),
-  logout: () => client.post('/api/auth/logout'),
+  register: (body) =>
+    client.post('/auth/register', body),
+
+  login: (body) =>
+    client.post('/auth/login', body),
+
+  me: () =>
+    client.get('/auth/me'),
+
+  logout: () =>
+    client.post('/auth/logout'),
+
+  googleLogin: (credential) =>
+    client.post('/auth/google', { credential }),
 };
 
 export default api;
