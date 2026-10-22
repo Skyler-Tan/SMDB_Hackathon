@@ -1,4 +1,3 @@
-
 import axios from 'axios';
 import { Capacitor } from '@capacitor/core';
 import { SecureStoragePlugin } from 'capacitor-secure-storage-plugin';
@@ -17,7 +16,18 @@ const api = axios.create({
   },
 });
 
-// Scan and item identification
+// Attach the saved login token to API requests.
+api.interceptors.request.use((config) => {
+  const token = tokenStore.get();
+
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+
+  return config;
+});
+
+// Scan and item identification.
 export const scanApi = {
   scan: (imageData, userId) =>
     api.post('/scan', { image: imageData, userId }),
@@ -28,8 +38,17 @@ export const scanApi = {
   correctItemName: (itemId, name, material) =>
     api.put(`/scan/${itemId}/correct`, { name, material }),
 
+  // Existing image-scan recycling endpoint.
   loadRecycling: (itemId) =>
     api.post(`/recycling/${itemId}`),
+
+  // NEW: recycling endpoint for catalog selections.
+  loadCatalogRecycling: (catalogItemId, userId) =>
+    api.post(
+      `/catalog/${encodeURIComponent(catalogItemId)}/recycling`,
+      null,
+      { params: userId ? { userId } : {} }
+    ),
 
   getScanHistory: (userId) =>
     api.get('/scan/history', {
@@ -37,16 +56,16 @@ export const scanApi = {
     }),
 };
 
-// Recycling catalog
+// Recycling catalog.
 export const catalogApi = {
   getAll: () =>
     api.get('/catalog'),
 
   getById: (id) =>
-    api.get(`/catalog/${id}`),
+    api.get(`/catalog/${encodeURIComponent(id)}`),
 };
 
-// Recycling actions, history, statistics, and reuse confirmation
+// Recycling actions, history, statistics, and reuse confirmation.
 export const recycleApi = {
   recycle: (request) =>
     api.post('/recycle', request),
@@ -65,7 +84,7 @@ export const recycleApi = {
     }),
 };
 
-// Nearby recycling locations
+// Nearby recycling locations.
 export const mapApi = {
   findNearby: (lat, lng, material = '') =>
     api.get('/places/recycling', {
@@ -73,7 +92,7 @@ export const mapApi = {
     }),
 };
 
-// Second-hand marketplace
+// Second-hand marketplace.
 export const marketApi = {
   getListings: (params = {}) =>
     api.get('/market/listings', { params }),
@@ -88,7 +107,10 @@ export const marketApi = {
     api.put(`/market/listings/${id}`, listing),
 
   updateStatus: (id, status, userId) =>
-    api.patch(`/market/listings/${id}/status`, { status, userId }),
+    api.patch(
+      `/market/listings/${id}/status`,
+      { status, userId }
+    ),
 
   remove: (id, userId) =>
     api.delete(`/market/listings/${id}`, {
@@ -99,7 +121,7 @@ export const marketApi = {
     api.post(`/market/listings/${id}/report`, body),
 };
 
-// Saved reuse ideas
+// Saved reuse ideas.
 export const savedIdeasApi = {
   getAll: (userId) =>
     api.get('/ideas/saved', { params: { userId } }),
@@ -108,10 +130,12 @@ export const savedIdeasApi = {
     api.post('/ideas/saved', idea),
 
   remove: (id, userId) =>
-    api.delete(`/ideas/saved/${id}`, { params: { userId } }),
+    api.delete(`/ideas/saved/${id}`, {
+      params: { userId },
+    }),
 };
 
-// Reuse history
+// Reuse history.
 export const reuseHistoryApi = {
   getAll: (userId) =>
     api.get('/reuse/history', {
@@ -122,23 +146,40 @@ export const reuseHistoryApi = {
     api.post('/reuse/history', entry),
 };
 
-// Token storage
+// Token storage.
 export const tokenStore = {
-  get: () => localStorage.getItem('34district_token'),
+  get: () => {
+    try {
+      return localStorage.getItem('34district_token');
+    } catch {
+      return memoryToken;
+    }
+  },
 
-  set: (t) => localStorage.setItem('34district_token', t),
+  set: (token) => {
+    memoryToken = token;
 
-  clear: () => localStorage.removeItem('34district_token'),
+    try {
+      localStorage.setItem('34district_token', token);
+    } catch {
+      // Keep the token in memory if localStorage is unavailable.
+    }
+  },
+
+  clear: () => {
+    memoryToken = null;
+
+    try {
+      localStorage.removeItem('34district_token');
+    } catch {
+      // Nothing else to clear.
+    }
+  },
 };
 
-// Authentication API
-// Uses the same base URL as the other API functions.
-const AUTH_API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  'https://sampies.onrender.com/api';
-
+// Authentication API.
 const client = axios.create({
-  baseURL: AUTH_API_BASE_URL,
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
